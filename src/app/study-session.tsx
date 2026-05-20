@@ -160,7 +160,7 @@ export default function StudySessionScreen() {
   };
 
   // IF NO DECK SPECIFIED OR ALL CAUGHT UP
-  if (!params.deckId || sessionCards.length === 0) {
+  if (!deck || !params.deckId || sessionCards.length === 0) {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
