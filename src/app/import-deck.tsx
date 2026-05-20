@@ -197,7 +197,7 @@ export default function ImportDeckScreen() {
   // ─── AI Flashcards Generation ─────────────────────
   const handleGenerate = async () => {
     if (!isAIConfigured()) {
-      setError('AI is not configured. Contact the developer.');
+      setError('Gemini API key is not configured. Please set up the EXPO_PUBLIC_GEMINI_API_KEY environment variable to enable Nexa AI generation!');
       return;
     }
     setError('');
@@ -245,7 +245,11 @@ export default function ImportDeckScreen() {
         nextReview: new Date().toISOString().split('T')[0],
       })),
     });
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/' as any);
+    }
   };
 
   const handleEditCard = (idx: number, field: 'front' | 'back', val: string) => {
@@ -260,7 +264,16 @@ export default function ImportDeckScreen() {
       <View style={[styles.container, { paddingTop: insets.top }]}>
         {/* Header */}
         <View style={styles.header}>
-          <Pressable style={styles.backBtn} onPress={() => router.back()}>
+          <Pressable
+            style={styles.backBtn}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/' as any);
+              }
+            }}
+          >
             <Ionicons name="arrow-back" size={20} color={Colors.primary} />
           </Pressable>
           <Text style={styles.headerTitle}>Generate Flashcards</Text>

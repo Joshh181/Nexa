@@ -20,12 +20,34 @@ export interface Card {
   easeFactor: number;     // SM-2 ease factor
 }
 
+export interface KeyTerm {
+  term: string;
+  definition: string;
+}
+
+export interface KeyConcept {
+  title: string;
+  bullets: string[];
+}
+
+export interface KeyTable {
+  title: string;
+  headers: string[];
+  rows: string[][];
+}
+
 export interface Deck {
   id: string;
   name: string;
   icon: string;           // emoji
   colorTag: ColorTag;
   cards: Card[];
+  essayQuestions?: string[];
+  keyTerms?: KeyTerm[];
+  keyConcepts?: KeyConcept[];
+  keyTables?: KeyTable[];
+  createdDate?: string;      // YYYY-MM-DD
+  lastStudiedDate?: string;  // YYYY-MM-DD
 }
 
 interface StudySession {
@@ -39,15 +61,14 @@ interface NexaState {
   lastStudiedDate: string;
   totalMastered: number;
   studySessions: StudySession[];
-  customApiKey: string;
 
   // Actions
   addDeck: (deck: Omit<Deck, 'id'>) => void;
+  updateDeck: (deckId: string, updates: Partial<Deck>) => void;
   deleteDeck: (deckId: string) => void;
   addCardToDeck: (deckId: string, front: string, back: string) => void;
   rateCard: (deckId: string, cardId: string, rating: 'again' | 'hard' | 'easy') => void;
   recordStudySession: (cardsStudied: number) => void;
-  setCustomApiKey: (key: string) => void;
   getDueCards: (deckId: string) => Card[];
   getTotalDueCards: () => number;
   getWeeklyActivity: () => number[];
@@ -216,11 +237,7 @@ export const useNexaStore = create<NexaState>()(
       lastStudiedDate: getToday(),
       totalMastered: 0,
       studySessions: [{ date: getToday(), cardsStudied: 0 }],
-      customApiKey: '',
 
-      setCustomApiKey: (key) => {
-        set({ customApiKey: key });
-      },
 
       addDeck: (deckData) => {
         const newDeck: Deck = {
@@ -228,6 +245,14 @@ export const useNexaStore = create<NexaState>()(
           id: generateId(),
         };
         set((state) => ({ decks: [...state.decks, newDeck] }));
+      },
+
+      updateDeck: (deckId, updates) => {
+        set((state) => ({
+          decks: state.decks.map((d) =>
+            d.id === deckId ? { ...d, ...updates } : d
+          ),
+        }));
       },
 
       deleteDeck: (deckId) => {

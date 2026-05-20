@@ -1,6 +1,7 @@
 /**
  * Nexa — AI Study Guide Screen
- * Compiles comprehensive summarized notes & textbook resources from Decks, Documents, Scans, and Paste
+ * Compiles comprehensive summarized notes, definitions, tables, and flashcards from study materials.
+ * Displays study guides in a stunning, highly detailed dark mode glassmorphic UI.
  */
 
 import { Ionicons } from '@expo/vector-icons';
@@ -29,32 +30,39 @@ import { Colors, Fonts, Spacing, BorderRadius } from '@/constants/theme';
 import {
   generateStudyGuide,
   generateStudyGuideFromImage,
-  isAIConfigured
+  isAIConfigured,
+  type StudyGuidePayload
 } from '@/services/gemini';
-import { useNexaStore } from '@/store/useNexaStore';
+import { useNexaStore, type Deck, type KeyTerm, type KeyConcept, type KeyTable } from '@/store/useNexaStore';
 
 const owlImage = require('../../assets/Nexa.png');
 
 type Mode = 'deck' | 'document' | 'image' | 'text';
+type Tab = 'chronicle' | 'arena';
 
 export default function StudyGuideScreen() {
   const insets = useSafeAreaInsets();
-  const { decks } = useNexaStore();
+  const { decks, addDeck, updateDeck } = useNexaStore();
   const params = useLocalSearchParams();
 
   const [mode, setMode] = useState<Mode>('deck');
+  const [activeDeckId, setActiveDeckId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('chronicle');
 
-  // Handle incoming deep link parameters from FAB option clicks
+  // Handle incoming parameters from Home screen
   useEffect(() => {
+    if (params.deckId) {
+      setActiveDeckId(params.deckId as string);
+    }
     if (params.mode) {
       const m = params.mode as Mode;
       if (['deck', 'document', 'image', 'text'].includes(m)) {
         setMode(m);
       }
     }
-  }, [params.mode]);
+  }, [params.deckId, params.mode]);
 
-  // States
+  // States for compiler
   const [selectedDeckId, setSelectedDeckId] = useState<string>(decks[0]?.id || '');
   const [fileName, setFileName] = useState('');
   const [fileUri, setFileUri] = useState('');
@@ -64,8 +72,20 @@ export default function StudyGuideScreen() {
 
   const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [guideContent, setGuideContent] = useState('');
   const [error, setError] = useState('');
+
+  // States for flashcard preview in Outline tab
+  const [activeCardIndex, setActiveCardIndex] = useState(0);
+  const [isCardFlipped, setIsCardFlipped] = useState(false);
+
+  // Find active deck for viewer
+  const currentDeck = decks.find(d => d.id === activeDeckId);
+
+  // Reset card state when deck changes
+  useEffect(() => {
+    setActiveCardIndex(0);
+    setIsCardFlipped(false);
+  }, [activeDeckId]);
 
   // ─── Document Selector ─────────────────────────────
   const handlePickFile = async () => {
@@ -170,14 +190,14 @@ export default function StudyGuideScreen() {
   // ─── AI Compile Action ─────────────────────────────
   const handleCompile = async () => {
     if (!isAIConfigured()) {
-      setError('AI is not configured. Contact the developer.');
+      setError('Gemini API key is not configured. Please set up the EXPO_PUBLIC_GEMINI_API_KEY environment variable to enable study guide generation!');
       return;
     }
     setError('');
     setLoading(true);
 
     try {
-      let compiledMarkdown = '';
+      let payload: StudyGuidePayload;
       const title = guideTitle.trim() || 'Study Guide';
 
       if (mode === 'deck') {
@@ -195,21 +215,21 @@ export default function StudyGuideScreen() {
         const sourceMaterial = deck.cards
           .map((c, i) => `Flashcard ${i + 1}:\nQuestion: ${c.front}\nAnswer: ${c.back}`)
           .join('\n\n');
-        compiledMarkdown = await generateStudyGuide(sourceMaterial, deck.name + ' Study Guide');
+        payload = await generateStudyGuide(sourceMaterial, deck.name + ' Study Guide');
       } else if (mode === 'image') {
         if (!fileBase64) {
           setError('Please capture or select an image first.');
           setLoading(false);
           return;
         }
-        compiledMarkdown = await generateStudyGuideFromImage(fileBase64, 'image/jpeg', title);
+        payload = await generateStudyGuideFromImage(fileBase64, 'image/jpeg', title);
       } else if (mode === 'text') {
         if (!pastedText.trim()) {
           setError('Please paste study notes first.');
           setLoading(false);
           return;
         }
-        compiledMarkdown = await generateStudyGuide(pastedText, title);
+        payload = await generateStudyGuide(pastedText, title);
       } else {
         if (!fileBase64) {
           setError('Please select a document first.');
@@ -217,10 +237,51 @@ export default function StudyGuideScreen() {
           return;
         }
         const sourceMaterial = fileBase64.substring(0, 100000);
-        compiledMarkdown = await generateStudyGuide(sourceMaterial, title);
+        payload = await generateStudyGuide(sourceMaterial, title);
       }
 
-      setGuideContent(compiledMarkdown);
+      const todayStr = new Date().toISOString().split('T')[0];
+      const createdStr = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY
+
+      if (mode === 'deck') {
+        // Save study guide variables into existing Deck!
+        updateDeck(selectedDeckId, {
+          keyTerms: payload.keyTerms,
+          keyConcepts: payload.keyConcepts,
+          keyTables: payload.keyTables,
+          essayQuestions: payload.essayQuestions,
+          createdDate: createdStr,
+          lastStudiedDate: todayStr,
+        });
+        setActiveDeckId(selectedDeckId);
+      } else {
+        // Create a completely new Deck!
+        const newDeckId = 'deck-' + Date.now();
+        addDeck({
+          name: title,
+          icon: mode === 'image' ? '📷' : mode === 'document' ? '📄' : '✍️',
+          colorTag: 'purple',
+          cards: payload.flashcards.map((c, idx) => ({
+            id: `card-${newDeckId}-${idx}`,
+            front: c.front,
+            back: c.back,
+            interval: 1,
+            nextReview: todayStr,
+            easeFactor: 2.5
+          })),
+          keyTerms: payload.keyTerms,
+          keyConcepts: payload.keyConcepts,
+          keyTables: payload.keyTables,
+          essayQuestions: payload.essayQuestions,
+          createdDate: createdStr,
+          lastStudiedDate: todayStr,
+        });
+        
+        // Wait a tiny bit for Zustand write, then navigate viewer
+        setTimeout(() => {
+          setActiveDeckId(newDeckId);
+        }, 100);
+      }
     } catch (e: any) {
       setError(e.message || 'Failed to compile study guide.');
     } finally {
@@ -237,46 +298,379 @@ export default function StudyGuideScreen() {
           <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: Spacing.xl }} />
           <Text style={styles.loadingTitle}>Compiling Study Guide...</Text>
           <Text style={styles.loadingSub}>
-            Scholar Nexa is indexing your materials and organizing custom study guides for you.
+            Scholar Nexa is indexing your materials, formulating high-quality key terms, custom summary tables, and flashcards.
           </Text>
         </View>
       </View>
     );
   }
 
-  // ─── Result Screen ─────────────────────────────────
-  if (guideContent) {
+  // ─── Result / Viewer Screen (Stunning Dark Mode) ───
+  if (currentDeck && currentDeck.keyTerms && currentDeck.keyTerms.length > 0) {
+    const cards = currentDeck.cards;
+    const currentCard = cards[activeCardIndex] || { front: 'No cards', back: 'No details' };
+
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Pressable style={styles.backBtn} onPress={() => setGuideContent('')}>
-            <Ionicons name="arrow-back" size={20} color={Colors.primary} />
+      <View style={[styles.viewerContainer, { paddingTop: insets.top }]}>
+        {/* Viewer Header */}
+        <View style={styles.viewerHeader}>
+          <Pressable
+            style={styles.viewerBackBtn}
+            onPress={() => {
+              if (params.deckId) {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace('/' as any);
+                }
+              } else {
+                setActiveDeckId(null);
+              }
+            }}
+          >
+            <Ionicons name="arrow-back" size={22} color={Colors.primary} />
           </Pressable>
-          <Text style={styles.headerTitle}>Study Notes</Text>
-          <View style={{ width: 36 }} />
+          <View style={styles.viewerHeaderActions}>
+            <Pressable style={styles.viewerHeaderActionBtn}>
+              <Ionicons name="bookmark-outline" size={20} color={Colors.primary} />
+            </Pressable>
+            <Pressable style={styles.viewerHeaderActionBtn}>
+              <Ionicons name="share-social-outline" size={20} color={Colors.primary} />
+            </Pressable>
+            <Pressable style={styles.viewerHeaderActionBtn}>
+              <Ionicons name="ellipsis-vertical" size={20} color={Colors.primary} />
+            </Pressable>
+          </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.guideCard}>
-            <Text style={styles.guideText}>{guideContent}</Text>
-          </View>
-          
-          {/* Wisdom Quote from Nexa */}
-          <View style={styles.wisdomCard}>
-            <Image source={owlImage} style={styles.wisdomOwl} contentFit="contain" />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.wisdomTitle}>Nexa's Study Tip</Text>
-              <Text style={styles.wisdomText}>
-                Keep these concepts organized, Scholar. Regular review builds long-term retrieval strength!
-              </Text>
+        <ScrollView contentContainerStyle={styles.viewerScrollContent} showsVerticalScrollIndicator={false}>
+          {/* User Profile and Creation Info */}
+          <View style={styles.viewerMetaContainer}>
+            <View style={styles.viewerProfileRow}>
+              <View style={styles.viewerAvatarBox}>
+                <Image source={owlImage} style={styles.viewerAvatar} />
+              </View>
+              <Text style={styles.viewerUsername}>J_Stellar6</Text>
+            </View>
+            <View style={styles.viewerDateRow}>
+              <Ionicons name="time-outline" size={14} color={Colors.mutedText} />
+              <Text style={styles.viewerDateText}>Created {currentDeck.createdDate || '19/05/2026'}</Text>
             </View>
           </View>
 
-          <Pressable style={styles.closeBtn} onPress={() => router.back()}>
-            <Text style={styles.closeBtnText}>Return to Home</Text>
+          {/* Navigation Tabs */}
+          <View style={styles.viewerTabContainer}>
+            <Pressable
+              style={[styles.viewerTabBtn, activeTab === 'chronicle' && styles.viewerTabBtnActive]}
+              onPress={() => setActiveTab('chronicle')}
+            >
+              <Text style={[styles.viewerTabTxt, activeTab === 'chronicle' && styles.viewerTabTxtActive]}>📖 Notebook Chronicle</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.viewerTabBtn, activeTab === 'arena' && styles.viewerTabBtnActive]}
+              onPress={() => setActiveTab('arena')}
+            >
+              <Text style={[styles.viewerTabTxt, activeTab === 'arena' && styles.viewerTabTxtActive]}>⚡ Flashcard Arena</Text>
+            </Pressable>
+          </View>
+
+          {activeTab === 'chronicle' ? (
+            /* ──────── CHRONICLE MODE (Notebook Chronicle) ──────── */
+            <View style={styles.tabContentBlock}>
+              {/* Mascot Welcome Card */}
+              <View style={styles.mascotBanner}>
+                <View style={styles.mascotBannerLeft}>
+                  <Image source={owlImage} style={styles.mascotBannerOwl} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.mascotBannerTitle}>Scholar Nexa's Codex</Text>
+                    <Text style={styles.mascotBannerSub}>
+                      "Wisdom begins with wonder. Review these compiled modules to master your subject!"
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Scholar's Lexicon (Key Terms) */}
+              {currentDeck.keyTerms && currentDeck.keyTerms.length > 0 && (
+                <View style={styles.quickSection}>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text style={styles.viewerSectionTitle}>📜 The Scholar's Lexicon</Text>
+                    <View style={styles.badgeLabelContainer}>
+                      <Text style={styles.badgeLabelText}>{currentDeck.keyTerms.length} Terms</Text>
+                    </View>
+                  </View>
+                  <View style={styles.lexiconGrid}>
+                    {currentDeck.keyTerms.map((item, idx) => (
+                      <View key={idx} style={styles.lexiconCard}>
+                        <View style={styles.lexiconHeaderRow}>
+                          <Ionicons name="bookmark" size={14} color={Colors.primary} />
+                          <Text style={styles.lexiconTermTxt} numberOfLines={1} ellipsizeMode="tail">
+                            {item.term}
+                          </Text>
+                        </View>
+                        <Text style={styles.lexiconDefTxt}>{item.definition}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* Deep-Dive Concepts Chronicle (Key Concepts) */}
+              {currentDeck.keyConcepts && currentDeck.keyConcepts.length > 0 && (
+                <View style={styles.quickSection}>
+                  <Text style={styles.viewerSectionTitle}>📖 Chronicles Timeline</Text>
+                  {currentDeck.keyConcepts.map((section, sIdx) => {
+                    const romanNumerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+                    const chapterLabel = `Chapter ${romanNumerals[sIdx] || (sIdx + 1)}`;
+                    return (
+                      <View key={sIdx} style={styles.conceptChapterCard}>
+                        <View style={styles.chapterHeader}>
+                          <Text style={styles.chapterLabelText}>{chapterLabel}</Text>
+                          <Text style={styles.chapterTitleText}>{section.title}</Text>
+                        </View>
+                        <View style={styles.chapterBulletsContainer}>
+                          {section.bullets.map((bullet, bIdx) => (
+                            <View key={bIdx} style={styles.chapterBulletRow}>
+                              <View style={styles.chapterBulletDot} />
+                              <Text style={styles.chapterBulletTxt}>{bullet}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* Scientific Registers (Key Tables) */}
+              {currentDeck.keyTables && currentDeck.keyTables.length > 0 && (
+                <View style={styles.quickSection}>
+                  <Text style={styles.viewerSectionTitle}>📊 Analytical Registers</Text>
+                  {currentDeck.keyTables.map((table, tIdx) => (
+                    <View key={tIdx} style={styles.tableContainer}>
+                      <Text style={styles.tableTitleLabel}>{table.title}</Text>
+                      <View style={styles.tableBorder}>
+                        {/* Table Headers */}
+                        <View style={styles.tableHeaderRow}>
+                          {table.headers.map((header, hIdx) => (
+                            <View
+                              key={hIdx}
+                              style={[
+                                styles.tableCell,
+                                {
+                                  flex: 1,
+                                  borderRightWidth: hIdx < table.headers.length - 1 ? 1 : 0,
+                                  borderRightColor: Colors.cardBorder
+                                }
+                              ]}
+                            >
+                              <Text style={styles.tableHeaderTxt}>{header}</Text>
+                            </View>
+                          ))}
+                        </View>
+                        {/* Table Rows */}
+                        {table.rows.map((row, rIdx) => (
+                          <View
+                            key={rIdx}
+                            style={[
+                              styles.tableRow,
+                              {
+                                borderTopWidth: 1,
+                                borderTopColor: Colors.cardBorder,
+                                backgroundColor: rIdx % 2 === 0 ? Colors.accentBadgeBg : 'transparent'
+                              }
+                            ]}
+                          >
+                            {row.map((cell, cIdx) => (
+                              <View
+                                key={cIdx}
+                                style={[
+                                  styles.tableCell,
+                                  {
+                                    flex: 1,
+                                    borderRightWidth: cIdx < row.length - 1 ? 1 : 0,
+                                    borderRightColor: Colors.cardBorder
+                                  }
+                                ]}
+                              >
+                                <Text style={styles.tableCellTxt}>{cell}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Scholar's Inquiries (Essay Questions) */}
+              {currentDeck.essayQuestions && currentDeck.essayQuestions.length > 0 && (
+                <View style={styles.essayBlock}>
+                  <Text style={styles.viewerSectionTitle}>🧭 Scholar's Inquiries</Text>
+                  <View style={styles.parchmentScroll}>
+                    {currentDeck.essayQuestions.map((q, idx) => (
+                      <View key={idx} style={styles.parchmentQuestionItem}>
+                        <View style={styles.parchmentNumberBadge}>
+                          <Text style={styles.parchmentNumberText}>{idx + 1}</Text>
+                        </View>
+                        <Text style={styles.parchmentText}>{q}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
+          ) : (
+            /* ──────── ARENA MODE (Flashcard Arena) ──────── */
+            <View style={styles.tabContentBlock}>
+              
+              {/* Flashcards Swipe Preview Section */}
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.viewerSectionTitle}>⚡ Active Training Deck</Text>
+                <Pressable onPress={() => router.push({ pathname: '/study' as any, params: { deckId: currentDeck.id } })}>
+                  <Text style={styles.viewerEditSetLink}>Go to Study Session</Text>
+                </Pressable>
+              </View>
+
+              {cards.length > 0 ? (
+                <View style={styles.cardPreviewBox}>
+                  <Pressable
+                    style={styles.inlineFcCard}
+                    onPress={() => setIsCardFlipped(!isCardFlipped)}
+                  >
+                    <View style={[styles.inlineFcHeader, { backgroundColor: isCardFlipped ? Colors.easyBg : Colors.accentBadgeBg }]}>
+                      <Text style={[styles.inlineFcHeaderTxt, { color: isCardFlipped ? Colors.easyText : Colors.primary }]}>
+                        {isCardFlipped ? 'Answer' : 'Question'}
+                      </Text>
+                    </View>
+                    <ScrollView contentContainerStyle={styles.inlineFcScroll}>
+                      <Text style={styles.inlineFcQuestionText}>
+                        {isCardFlipped ? currentCard.back : currentCard.front}
+                      </Text>
+                    </ScrollView>
+                    
+                    <View style={styles.inlineFcFooter}>
+                      <Pressable
+                        disabled={activeCardIndex === 0}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          setIsCardFlipped(false);
+                          setActiveCardIndex(prev => Math.max(0, prev - 1));
+                        }}
+                        style={[styles.inlineFcArrowBtn, activeCardIndex === 0 && { opacity: 0.3 }]}
+                      >
+                        <Ionicons name="chevron-back" size={16} color={Colors.primary} />
+                      </Pressable>
+                      
+                      <Text style={styles.inlineFcPagingText}>
+                        {activeCardIndex + 1} / {cards.length}
+                      </Text>
+                      
+                      <Pressable
+                        disabled={activeCardIndex === cards.length - 1}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          setIsCardFlipped(false);
+                          setActiveCardIndex(prev => Math.min(cards.length - 1, prev + 1));
+                        }}
+                        style={[styles.inlineFcArrowBtn, activeCardIndex === cards.length - 1 && { opacity: 0.3 }]}
+                      >
+                        <Ionicons name="chevron-forward" size={16} color={Colors.primary} />
+                      </Pressable>
+                      
+                      <Pressable 
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          router.push({ pathname: '/study' as any, params: { deckId: currentDeck.id } });
+                        }}
+                        style={styles.inlineFcExpandBtn}
+                      >
+                        <Ionicons name="expand" size={14} color={Colors.primary} />
+                      </Pressable>
+                    </View>
+                  </Pressable>
+
+                  {/* Dot Pagings */}
+                  <View style={styles.dotContainer}>
+                    {cards.slice(0, Math.min(5, cards.length)).map((_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.pagingDot,
+                          i === (activeCardIndex % 5) && styles.pagingDotActive
+                        ]}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyTxt}>No cards in this deck.</Text>
+                </View>
+              )}
+
+              {/* Study Mode List */}
+              <Text style={styles.viewerSectionLabel}>Other ways to study these flashcards</Text>
+              <View style={styles.studyWaysContainer}>
+                
+                {/* Learn */}
+                <Pressable
+                  style={styles.studyWayBtn}
+                  onPress={() => router.push({ pathname: '/study' as any, params: { deckId: currentDeck.id } })}
+                >
+                  <View style={[styles.studyWayIconBox, { borderColor: '#5ab87a' }]}>
+                    <Ionicons name="sync-outline" size={18} color="#5ab87a" />
+                  </View>
+                  <Text style={styles.studyWayTitle}>Learn</Text>
+                  <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} style={{ marginLeft: 'auto' }} />
+                </Pressable>
+
+                {/* Test */}
+                <Pressable
+                  style={styles.studyWayBtn}
+                  onPress={() => router.push({ pathname: '/practice-test' as any, params: { deckId: currentDeck.id } })}
+                >
+                  <View style={[styles.studyWayIconBox, { borderColor: '#3598db' }]}>
+                    <Ionicons name="document-text-outline" size={18} color="#3598db" />
+                  </View>
+                  <Text style={styles.studyWayTitle}>Test</Text>
+                  <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} style={{ marginLeft: 'auto' }} />
+                </Pressable>
+
+                {/* Match */}
+                <Pressable
+                  style={styles.studyWayBtn}
+                  onPress={() => Alert.alert('Steampunk Match Game', 'Get ready Scholar! Matching cards allows you to pair terms and definitions against the clock. Standard mobile version launching soon!')}
+                >
+                  <View style={[styles.studyWayIconBox, { borderColor: '#e67e22' }]}>
+                    <Ionicons name="albums-outline" size={18} color="#e67e22" />
+                  </View>
+                  <Text style={styles.studyWayTitle}>Match</Text>
+                  <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} style={{ marginLeft: 'auto' }} />
+                </Pressable>
+              </View>
+
+            </View>
+          )}
+
+          <Pressable
+            style={styles.viewerCloseBtn}
+            onPress={() => {
+              if (params.deckId) {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace('/' as any);
+                }
+              } else {
+                setActiveDeckId(null);
+              }
+            }}
+          >
+            <Text style={styles.viewerCloseBtnText}>Return to Decks</Text>
           </Pressable>
-          <View style={{ height: 40 }} />
+          <View style={{ height: 60 }} />
         </ScrollView>
       </View>
     );
@@ -287,7 +681,16 @@ export default function StudyGuideScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+        <Pressable
+          style={styles.backBtn}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace('/' as any);
+            }
+          }}
+        >
           <Ionicons name="arrow-back" size={20} color={Colors.primary} />
         </Pressable>
         <Text style={styles.headerTitle}>AI Study Guides</Text>
@@ -295,13 +698,13 @@ export default function StudyGuideScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Intro */}
+        {/* Intro Banner */}
         <View style={styles.introCard}>
           <Image source={owlImage} style={styles.introOwl} contentFit="contain" />
           <View style={{ flex: 1 }}>
             <Text style={styles.introTitle}>Instant Study Notes</Text>
             <Text style={styles.introSub}>
-              Compile comprehensive textbook summaries and key definitions directly from study material.
+              Compile comprehensive textbook summaries, bold definitions, key tables, and flashcards directly from study material.
             </Text>
           </View>
         </View>
@@ -541,7 +944,6 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   
-  // Grid styles
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -587,7 +989,6 @@ const styles = StyleSheet.create({
   },
   fileChipTxt: { fontFamily: Fonts.bodySemiBold, fontSize: 12, color: Colors.easyText, flex: 1 },
 
-  // Deck Selection List
   deckList: { gap: Spacing.md },
   deckItem: {
     flexDirection: 'row',
@@ -642,39 +1043,6 @@ const styles = StyleSheet.create({
   compileBtnText: { fontFamily: Fonts.display, fontSize: 16, color: Colors.white },
   disabled: { opacity: 0.5 },
 
-  // Guide display
-  guideCard: {
-    backgroundColor: Colors.cardSurface,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-    borderRadius: BorderRadius.card,
-    padding: Spacing.xxl,
-    marginBottom: Spacing.xl,
-  },
-  guideText: { fontFamily: Fonts.body, fontSize: 13, color: Colors.headingText, lineHeight: 22 },
-
-  wisdomCard: {
-    backgroundColor: Colors.accentBadgeBg,
-    borderRadius: BorderRadius.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.xl,
-    gap: Spacing.lg,
-    marginBottom: Spacing.xl,
-  },
-  wisdomOwl: { width: 44, height: 44 },
-  wisdomTitle: { fontFamily: Fonts.bodyBold, fontSize: 13, color: Colors.primary },
-  wisdomText: { fontFamily: Fonts.body, fontSize: 11, color: Colors.headingText, marginTop: 2, lineHeight: 16 },
-
-  closeBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.xxl,
-    height: 52,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  closeBtnText: { fontFamily: Fonts.display, fontSize: 16, color: Colors.white },
-
   emptyState: { paddingVertical: Spacing.xl, alignItems: 'center' },
   emptyTxt: { fontFamily: Fonts.body, fontSize: 12, color: Colors.mutedText },
 
@@ -683,7 +1051,6 @@ const styles = StyleSheet.create({
   loadingTitle: { fontFamily: Fonts.display, fontSize: 20, color: Colors.headingText, marginTop: Spacing.xl },
   loadingSub: { fontFamily: Fonts.body, fontSize: 13, color: Colors.mutedText, textAlign: 'center', marginTop: Spacing.md, lineHeight: 20 },
 
-  // Modal styles
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(61, 43, 138, 0.4)',
@@ -724,4 +1091,555 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalSubmitBtnText: { fontFamily: Fonts.display, fontSize: 16, color: Colors.white },
+
+  /* ───────────────────────────────────────────────────
+   * STUNNING LIGHT LAVENDER VIEWER STYLE (Nexa Theme)
+   * ─────────────────────────────────────────────────── */
+  viewerContainer: {
+    flex: 1,
+    backgroundColor: Colors.background, // Premium soft light lavender background
+  },
+  viewerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.xxl,
+    paddingVertical: Spacing.lg,
+  },
+  viewerBackBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  viewerHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xl,
+  },
+  viewerHeaderActionBtn: {
+    padding: Spacing.sm,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  viewerScrollContent: {
+    paddingHorizontal: Spacing.xxl,
+  },
+  viewerMetaContainer: {
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xxl,
+  },
+  viewerProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  viewerAvatarBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.accentBadgeBg,
+    borderWidth: 1.5,
+    borderColor: Colors.cardBorder,
+    overflow: 'hidden',
+  },
+  viewerAvatar: {
+    width: '100%',
+    height: '100%',
+  },
+  viewerUsername: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
+    color: Colors.headingText,
+  },
+  viewerDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  viewerDateText: {
+    fontFamily: Fonts.body,
+    fontSize: 11,
+    color: Colors.mutedText, // Soft lavender subtitle color
+  },
+
+  // Viewer Tab System
+  viewerTabContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1.5,
+    borderBottomColor: Colors.cardBorder,
+    marginBottom: Spacing.xxl,
+  },
+  viewerTabBtn: {
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
+    marginRight: Spacing.xl,
+  },
+  viewerTabBtnActive: {
+    borderBottomWidth: 3,
+    borderBottomColor: Colors.primary, // Active tab bar accent indicator
+    marginBottom: -1.5,
+  },
+  viewerTabTxt: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
+    color: Colors.mutedText, // Unselected tab gray-purple text
+  },
+  viewerTabTxtActive: {
+    color: Colors.primary, // Selected tab white text
+  },
+
+  // Viewer Sections
+  tabContentBlock: {
+    gap: Spacing.huge,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  viewerSectionTitle: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 16,
+    color: Colors.headingText,
+    marginBottom: Spacing.md,
+  },
+  viewerEditSetLink: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12,
+    color: Colors.primary,
+  },
+  viewerSectionLabel: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 11,
+    color: Colors.mutedText,
+    marginBottom: Spacing.md,
+  },
+
+  // Interactive Card Box
+  cardPreviewBox: {
+    marginBottom: Spacing.xl,
+  },
+  inlineFcCard: {
+    backgroundColor: Colors.cardSurface, // Premium white light mode card
+    borderWidth: 1.5,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.round,
+    minHeight: 210,
+    padding: Spacing.xxl,
+    justifyContent: 'space-between',
+    elevation: 2,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+  },
+  inlineFcHeader: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.md,
+  },
+  inlineFcHeaderTxt: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 10,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  inlineFcScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  inlineFcQuestionText: {
+    fontFamily: Fonts.display,
+    fontSize: 18,
+    color: Colors.headingText,
+    textAlign: 'center',
+    lineHeight: 26,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.md,
+  },
+  inlineFcFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.md,
+    gap: Spacing.xxl,
+    position: 'relative',
+    width: '100%',
+  },
+  inlineFcArrowBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.accentBadgeBg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  inlineFcPagingText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12,
+    color: Colors.headingText,
+  },
+  inlineFcExpandBtn: {
+    position: 'absolute',
+    right: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.accentBadgeBg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // Paging Dots
+  dotContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: Spacing.xl,
+    marginBottom: Spacing.xl,
+  },
+  pagingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.cardBorder,
+  },
+  pagingDotActive: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.primary,
+  },
+
+  // Study ways
+  studyWaysContainer: {
+    gap: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  studyWayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1.5,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    gap: Spacing.xl,
+  },
+  studyWayIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  studyWayTitle: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
+    color: Colors.headingText,
+  },
+
+  // Essay block
+  essayBlock: {
+    marginTop: Spacing.sm,
+  },
+  essayQuestionItem: {
+    flexDirection: 'row',
+    gap: Spacing.lg,
+    backgroundColor: Colors.cardSurface,
+    borderRadius: BorderRadius.xl,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.lg,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  essayNumber: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12,
+    color: Colors.primary,
+  },
+  essayText: {
+    fontFamily: Fonts.body,
+    fontSize: 12,
+    color: Colors.headingText,
+    flex: 1,
+    lineHeight: 18,
+  },
+
+  // Bullet Lists
+  quickSection: {
+    marginBottom: Spacing.sm,
+  },
+  bulletList: {
+    gap: Spacing.md,
+  },
+  bulletItem: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    alignItems: 'flex-start',
+    paddingLeft: Spacing.sm,
+  },
+  bulletSymbol: {
+    fontSize: 14,
+    color: Colors.primary,
+    marginTop: -2,
+  },
+  bulletContent: {
+    fontFamily: Fonts.body,
+    fontSize: 12.5,
+    color: Colors.headingText,
+    flex: 1,
+    lineHeight: 19,
+  },
+  bulletBold: {
+    fontFamily: Fonts.bodyBold,
+    color: Colors.primary,
+  },
+
+  // Custom Light Mode Table
+  tableContainer: {
+    marginBottom: Spacing.sm,
+  },
+  tableBorder: {
+    borderWidth: 1.5,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.xl,
+    overflow: 'hidden',
+    backgroundColor: Colors.cardSurface,
+    marginTop: Spacing.md,
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+    backgroundColor: Colors.accentBadgeBg,
+  },
+  tableRow: {
+    flexDirection: 'row',
+  },
+  tableCell: {
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.xl,
+    justifyContent: 'center',
+  },
+  tableHeaderTxt: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 11,
+    color: Colors.primary,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  tableCellTxt: {
+    fontFamily: Fonts.body,
+    fontSize: 11.5,
+    color: Colors.headingText,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+
+  viewerCloseBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.xxl,
+    height: 52,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: Spacing.xxxl,
+  },
+  viewerCloseBtnText: {
+    fontFamily: Fonts.display,
+    fontSize: 15,
+    color: Colors.white,
+  },
+
+  // Modular Scholar Steampunk Dashboard additions
+  mascotBanner: {
+    backgroundColor: Colors.accentBadgeBg,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    marginBottom: Spacing.xl,
+  },
+  mascotBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xl,
+    flex: 1,
+  },
+  mascotBannerOwl: {
+    width: 48,
+    height: 48,
+  },
+  mascotBannerTitle: {
+    fontFamily: Fonts.display,
+    fontSize: 15,
+    color: Colors.headingText,
+    marginBottom: 2,
+  },
+  mascotBannerSub: {
+    fontFamily: Fonts.body,
+    fontSize: 11,
+    color: Colors.mutedText,
+    lineHeight: 15,
+    paddingRight: Spacing.xl,
+  },
+  badgeLabelContainer: {
+    backgroundColor: Colors.accentBadgeBg,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.round,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  badgeLabelText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 10,
+    color: Colors.primary,
+  },
+  lexiconGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.lg,
+    marginTop: Spacing.md,
+  },
+  lexiconCard: {
+    width: '47%',
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1.5,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    gap: Spacing.md,
+    minHeight: 100,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  lexiconHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  lexiconTermTxt: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 13,
+    color: Colors.primary,
+    flex: 1,
+  },
+  lexiconDefTxt: {
+    fontFamily: Fonts.body,
+    fontSize: 11.5,
+    color: Colors.headingText,
+    lineHeight: 16,
+  },
+  conceptChapterCard: {
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1.5,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xxl,
+    marginBottom: Spacing.xl,
+  },
+  chapterHeader: {
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+    paddingBottom: Spacing.lg,
+    marginBottom: Spacing.xl,
+  },
+  chapterLabelText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    color: Colors.mutedText,
+    marginBottom: 4,
+  },
+  chapterTitleText: {
+    fontFamily: Fonts.display,
+    fontSize: 16,
+    color: Colors.headingText,
+  },
+  chapterBulletsContainer: {
+    gap: Spacing.lg,
+  },
+  chapterBulletRow: {
+    flexDirection: 'row',
+    gap: Spacing.lg,
+    alignItems: 'flex-start',
+  },
+  chapterBulletDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.primary,
+    marginTop: 6,
+  },
+  chapterBulletTxt: {
+    fontFamily: Fonts.body,
+    fontSize: 12.5,
+    color: Colors.headingText,
+    lineHeight: 19,
+    flex: 1,
+  },
+  tableTitleLabel: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 13,
+    color: Colors.headingText,
+    marginBottom: Spacing.sm,
+  },
+  parchmentScroll: {
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1.5,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xxl,
+    gap: Spacing.xl,
+  },
+  parchmentQuestionItem: {
+    flexDirection: 'row',
+    gap: Spacing.xl,
+    alignItems: 'flex-start',
+  },
+  parchmentNumberBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.accentBadgeBg,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  parchmentNumberText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 11,
+    color: Colors.primary,
+  },
+  parchmentText: {
+    fontFamily: Fonts.body,
+    fontSize: 12.5,
+    color: Colors.headingText,
+    lineHeight: 18,
+    flex: 1,
+  },
 });

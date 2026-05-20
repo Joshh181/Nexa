@@ -133,6 +133,13 @@ export default function RootLayout() {
             tabBarStyle: { display: 'none' },
           }}
         />
+        <Tabs.Screen
+          name="study-session"
+          options={{
+            href: null,
+            tabBarStyle: { display: 'none' },
+          }}
+        />
       </Tabs>
     </>
   );

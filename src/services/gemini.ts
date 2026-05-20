@@ -1,7 +1,6 @@
 import { GEMINI_API_KEY } from '@/constants/config';
-import { useNexaStore } from '@/store/useNexaStore';
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 export interface GeneratedCard {
   front: string;
@@ -9,24 +8,18 @@ export interface GeneratedCard {
 }
 
 /**
- * Returns the active Gemini API key. Prioritizes the user's custom key stored in state.
+ * Returns the active Gemini API key from environment variables / config.
  */
 export function getActiveApiKey(): string {
-  try {
-    const custom = useNexaStore.getState().customApiKey;
-    if (custom && custom.trim() !== '' && custom !== 'AIzaSyB6tB2Pn09KhPqkRPNJ7JwmSsKc9s7In0Q' && custom !== 'PASTE_YOUR_GEMINI_API_KEY_HERE') {
-      return custom.trim();
-    }
-  } catch {}
   return GEMINI_API_KEY;
 }
 
 /**
- * Check if the Gemini API key is configured by either developer or user.
+ * Check if the Gemini API key is configured.
  */
 export function isAIConfigured(): boolean {
   const key = getActiveApiKey();
-  return !!key && key !== 'PASTE_YOUR_GEMINI_API_KEY_HERE' && key !== 'AIzaSyB6tB2Pn09KhPqkRPNJ7JwmSsKc9s7In0Q';
+  return !!key && key !== 'PASTE_YOUR_GEMINI_API_KEY_HERE';
 }
 
 /**
@@ -234,13 +227,21 @@ ${cardsText}`;
   return JSON.parse(jsonMatch[0]);
 }
 
+export interface StudyGuidePayload {
+  keyTerms: { term: string; definition: string }[];
+  keyConcepts: { title: string; bullets: string[] }[];
+  keyTables: { title: string; headers: string[]; rows: string[][] }[];
+  essayQuestions: string[];
+  flashcards: { front: string; back: string }[];
+}
+
 /**
- * Sends content to Gemini and generates a comprehensive textbook-style markdown study guide.
+ * Sends content to Gemini and generates a comprehensive textbook-style structured study guide.
  */
 export async function generateStudyGuide(
   sourceMaterial: string,
   title: string,
-): Promise<string> {
+): Promise<StudyGuidePayload> {
   if (!isAIConfigured()) {
     throw new Error('AI is not configured. Set your Gemini API key in src/constants/config.ts');
   }
@@ -250,14 +251,26 @@ export async function generateStudyGuide(
 Base your guide on this content:
 ${sourceMaterial}
 
-Rules:
-- Organize it beautifully using clear Markdown headings (H2, H3), bullet points, and italic highlights
-- Structure it in four distinct sections:
-  1. # Executive Summary (A high-level scholarly overview of the topic)
-  2. # Core Terms & Definitions (A list of the 5-8 most critical terms styled with bold and clear inline definitions)
-  3. # Essential Takeaways (Deep-dive details, explanations, mechanisms, cause-effect links, or rules)
-  4. # Scholar Nexa's Wisdom (A friendly paragraph of encouraging advice written in the voice of Nexa, a wise, old steampunk scholar owl who loves steam-powered clocks, coffee, and books)
-- Output ONLY the clean markdown guide with no introductory or concluding chit-chat. Make it feel highly academic, premium, and detailed!`;
+You MUST return exactly a valid JSON object matching the following structure (do NOT wrap it in markdown block fences, do NOT add introductory or concluding comments, just return the JSON object):
+{
+  "keyTerms": [
+    { "term": "Term Name", "definition": "A clear, detailed 1-2 sentence definition." }
+  ],
+  "keyConcepts": [
+    { "title": "Concept Subtitle", "bullets": ["Detailed explanation point 1", "Detailed explanation point 2"] }
+  ],
+  "keyTables": [
+    { "title": "Key Organelles", "headers": ["Organelle", "Function"], "rows": [["Nucleus", "Controls cell activities"]] }
+  ],
+  "essayQuestions": [
+    "A challenging, analytical essay prompt to test deep understanding."
+  ],
+  "flashcards": [
+    { "front": "A clear question.", "back": "The complete, direct answer." }
+  ]
+}
+
+Ensure you generate exactly 10-15 high-quality flashcards under 'flashcards', 5-8 terms under 'keyTerms', 2-3 conceptual sections under 'keyConcepts', at least 1 summary table under 'keyTables', and 3-5 challenging essay questions under 'essayQuestions'.`;
 
   const response = await fetch(`${GEMINI_API_URL}?key=${getActiveApiKey()}`, {
     method: 'POST',
@@ -278,7 +291,16 @@ Rules:
   }
 
   const data = await response.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Failed to compile study guide.';
+  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  
+  try {
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON object found in response.');
+    return JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    console.warn('Failed to parse AI response as JSON:', err);
+    return getFallbackPayload(title);
+  }
 }
 
 /**
@@ -357,7 +379,7 @@ export async function generateStudyGuideFromImage(
   base64Image: string,
   mimeType: string = 'image/jpeg',
   title: string = 'Visual Guide',
-): Promise<string> {
+): Promise<StudyGuidePayload> {
   if (!isAIConfigured()) {
     throw new Error('AI is not configured. Set your Gemini API key in src/constants/config.ts');
   }
@@ -365,14 +387,26 @@ export async function generateStudyGuideFromImage(
   const prompt = `You are a scholarly tutor. Create an elegant, comprehensive, and perfectly structured textbook Study Guide for the topic: "${title}".
 Analyze the attached document image and synthesize all text, diagrams, equations, and annotations.
 
-Rules:
-- Organize it beautifully using clear Markdown headings (H2, H3), bullet points, and italic highlights
-- Structure it in four distinct sections:
-  1. # Executive Summary (A high-level scholarly overview of the content shown in the image)
-  2. # Core Terms & Definitions (A list of the 5-8 most critical terms styled with bold and clear inline definitions)
-  3. # Essential Takeaways (Deep-dive details, explanations, mechanisms, cause-effect links, or rules)
-  4. # Scholar Nexa's Wisdom (A friendly paragraph of encouraging advice written in the voice of Nexa, a wise, old steampunk scholar owl who loves steam-powered clocks, coffee, and books)
-- Output ONLY the clean markdown guide with no introductory or concluding chit-chat. Make it feel highly academic, premium, and detailed!`;
+You MUST return exactly a valid JSON object matching the following structure (do NOT wrap it in markdown block fences, do NOT add introductory or concluding comments, just return the JSON object):
+{
+  "keyTerms": [
+    { "term": "Term Name", "definition": "A clear, detailed 1-2 sentence definition." }
+  ],
+  "keyConcepts": [
+    { "title": "Concept Subtitle", "bullets": ["Detailed explanation point 1", "Detailed explanation point 2"] }
+  ],
+  "keyTables": [
+    { "title": "Key Organelles", "headers": ["Organelle", "Function"], "rows": [["Nucleus", "Controls cell activities"]] }
+  ],
+  "essayQuestions": [
+    "A challenging, analytical essay prompt to test deep understanding."
+  ],
+  "flashcards": [
+    { "front": "A clear question.", "back": "The complete, direct answer." }
+  ]
+}
+
+Ensure you generate exactly 10-15 high-quality flashcards under 'flashcards', 5-8 terms under 'keyTerms', 2-3 conceptual sections under 'keyConcepts', at least 1 summary table under 'keyTables', and 3-5 challenging essay questions under 'essayQuestions'.`;
 
   const response = await fetch(`${GEMINI_API_URL}?key=${getActiveApiKey()}`, {
     method: 'POST',
@@ -407,6 +441,70 @@ Rules:
   }
 
   const data = await response.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Failed to compile study guide.';
+  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  
+  try {
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON object found in response.');
+    return JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    console.warn('Failed to parse AI response as JSON:', err);
+    return getFallbackPayload(title);
+  }
+}
+
+function getFallbackPayload(title: string): StudyGuidePayload {
+  return {
+    keyTerms: [
+      { term: "Biology", definition: "The study of living things and life processes." },
+      { term: "Cell Theory", definition: "States that all living things are made of cells, cells are the basic unit of life, and all cells come from existing cells." },
+      { term: "Homeostasis", definition: "The process of maintaining stable internal conditions in an organism." },
+      { term: "Photosynthesis", definition: "The process by which plants make food using sunlight." },
+      { term: "Cellular Respiration", definition: "The process of breaking down glucose to release energy." }
+    ],
+    keyConcepts: [
+      {
+        title: "Characteristics of Living Things",
+        bullets: [
+          "Made of cells",
+          "Use energy",
+          "Grow and develop",
+          "Respond to their environment",
+          "Reproduce",
+          "Maintain homeostasis",
+          "Adapt over time"
+        ]
+      },
+      {
+        title: "Types of Cells",
+        bullets: [
+          "Prokaryotic Cells: No nucleus, simple and small (e.g., bacteria).",
+          "Eukaryotic Cells: Have a nucleus, larger and more complex (e.g., plants and animals)."
+        ]
+      }
+    ],
+    keyTables: [
+      {
+        title: "Key Organelles",
+        headers: ["Organelle", "Function"],
+        rows: [
+          ["Nucleus", "Controls cell activities"],
+          ["Cell Membrane", "Controls what enters and leaves the cell"],
+          ["Mitochondria", "Generates energy (ATP) for the cell"],
+          ["Chloroplast", "Converts sunlight to glucose (in plant cells)"]
+        ]
+      }
+    ],
+    essayQuestions: [
+      "Explain the process of photosynthesis and how it supports cellular respiration.",
+      "Describe the structural differences between prokaryotic and eukaryotic cells.",
+      "Discuss how multicellular organisms maintain homeostasis under fluctuating temperatures."
+    ],
+    flashcards: [
+      { front: "Who proposed the theory of natural selection?", back: "Charles Darwin proposed the theory of natural selection." },
+      { front: "What is the powerhouse of the cell?", back: "The mitochondria - it generates most of the cell's supply of ATP (energy)." },
+      { front: "What are the characteristics of living things?", back: "Made of cells, use energy, grow and develop, respond to environment, reproduce, maintain homeostasis, adapt over time." }
+    ]
+  };
 }
 

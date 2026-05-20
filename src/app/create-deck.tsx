@@ -39,7 +39,7 @@ export default function CreateDeckScreen() {
   const { addDeck, addCardToDeck } = useNexaStore();
 
   const [deckName, setDeckName] = useState('');
-  const [selectedIcon, setSelectedIcon] = useState('📚');
+  const selectedIcon = '';
   const [selectedColor, setSelectedColor] = useState<ColorTag>('purple');
   const [cardFront, setCardFront] = useState('');
   const [cardBack, setCardBack] = useState('');
@@ -73,7 +73,11 @@ export default function CreateDeckScreen() {
     for (const card of tempCards) {
       store.addCardToDeck(newDeck.id, card.front, card.back);
     }
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/' as any);
+    }
   };
 
   return (
@@ -84,7 +88,16 @@ export default function CreateDeckScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <Pressable style={styles.closeBtn} onPress={() => router.back()}>
+          <Pressable
+            style={styles.closeBtn}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/' as any);
+              }
+            }}
+          >
             <Ionicons name="close" size={20} color={Colors.primary} />
           </Pressable>
           <Text style={styles.headerTitle}>New Deck</Text>
@@ -103,22 +116,7 @@ export default function CreateDeckScreen() {
           />
         </View>
 
-        {/* Icon Picker */}
-        <Text style={styles.fieldLabel}>CHOOSE AN ICON</Text>
-        <View style={styles.emojiRow}>
-          {EMOJI_OPTIONS.map((emoji) => (
-            <Pressable
-              key={emoji}
-              style={[
-                styles.emojiBtn,
-                selectedIcon === emoji && styles.emojiBtnActive,
-              ]}
-              onPress={() => setSelectedIcon(emoji)}
-            >
-              <Text style={styles.emojiText}>{emoji}</Text>
-            </Pressable>
-          ))}
-        </View>
+
 
         {/* Color Picker */}
         <Text style={styles.fieldLabel}>COLOR TAG</Text>

@@ -8,6 +8,7 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Pressable,
   ScrollView,
@@ -57,13 +58,13 @@ function StatBox({
   return (
     <View style={styles.statBox}>
       <View style={[styles.statIconBox, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
+        <Ionicons name={icon} size={20} color={iconColor} />
       </View>
-      <View>
+      <View style={styles.statTextColumn}>
         <Animated.Text
           style={[
             styles.statValue,
-            { opacity: countAnim, transform: [{ scale: countAnim }] },
+            { opacity: countAnim },
           ]}
         >
           {value}
@@ -83,6 +84,7 @@ function DeckCard({
   totalCards,
   dueCount,
   onPress,
+  onDelete,
 }: {
   name: string;
   icon: string;
@@ -90,6 +92,7 @@ function DeckCard({
   totalCards: number;
   dueCount: number;
   onPress: () => void;
+  onDelete: () => void;
 }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -131,37 +134,59 @@ function DeckCard({
             { backgroundColor: deckBgMap[colorTag] || Colors.purpleDeckBg },
           ]}
         >
-          <Text style={styles.deckEmoji}>{icon}</Text>
+          <Ionicons name="layers" size={16} color={Colors.primary} />
         </View>
         <View style={styles.deckInfo}>
           <Text style={styles.deckName}>{name}</Text>
           <Text style={styles.deckCount}>{totalCards} cards</Text>
         </View>
-        {dueCount > 0 && (
-          <View
-            style={[
-              styles.duePill,
-              {
-                backgroundColor: isUrgent
-                  ? Colors.urgentPillBg
-                  : Colors.accentBadgeBg,
-              },
-            ]}
-          >
-            <Text
+        <View style={styles.deckCardRight}>
+          {dueCount > 0 && (
+            <View
               style={[
-                styles.duePillText,
+                styles.duePill,
                 {
-                  color: isUrgent
-                    ? Colors.urgentPillText
-                    : Colors.accentBadgeText,
+                  backgroundColor: isUrgent
+                    ? Colors.urgentPillBg
+                    : Colors.accentBadgeBg,
                 },
               ]}
             >
-              {dueCount} due
-            </Text>
-          </View>
-        )}
+              <Text
+                style={[
+                  styles.duePillText,
+                  {
+                    color: isUrgent
+                      ? Colors.urgentPillText
+                      : Colors.accentBadgeText,
+                  },
+                ]}
+              >
+                {dueCount} due
+              </Text>
+            </View>
+          )}
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation();
+              Alert.alert(
+                'Delete Deck',
+                `Are you sure you want to delete "${name}"? This will permanently delete all cards and progress.`,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Delete', style: 'destructive', onPress: onDelete },
+                ]
+              );
+            }}
+            style={({ pressed }) => [
+              styles.deckDeleteBtn,
+              pressed && { opacity: 0.6 },
+            ]}
+            hitSlop={12}
+          >
+            <Ionicons name="trash-outline" size={16} color="#c04070" />
+          </Pressable>
+        </View>
       </Animated.View>
     </Pressable>
   );
@@ -171,40 +196,20 @@ function DeckCard({
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { decks, streak, totalMastered, getTotalDueCards } = useNexaStore();
+  const { decks, streak, totalMastered, getTotalDueCards, deleteDeck } = useNexaStore();
   const totalDue = getTotalDueCards();
+
+  const recentGuides = [...decks]
+    .sort((a, b) => {
+      const dateA = a.lastStudiedDate || a.createdDate || '';
+      const dateB = b.lastStudiedDate || b.createdDate || '';
+      return dateB.localeCompare(dateA);
+    })
+    .slice(0, 5);
 
   // Screen enter animation
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(12)).current;
-
-  // Custom Interactive FAB Menu States
-  const [isFabOpen, setIsFabOpen] = useState(false);
-  const [isSubMenuOpen, setIsSubMenuOpen] = useState(false);
-  const [isStudyGuideSubMenuOpen, setIsStudyGuideSubMenuOpen] = useState(false);
-  const menuAnim = useRef(new Animated.Value(0)).current;
-
-  const toggleFabMenu = () => {
-    if (isFabOpen) {
-      Animated.timing(menuAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start(() => {
-        setIsFabOpen(false);
-        setIsSubMenuOpen(false);
-        setIsStudyGuideSubMenuOpen(false);
-      });
-    } else {
-      setIsFabOpen(true);
-      Animated.spring(menuAnim, {
-        toValue: 1,
-        tension: 55,
-        friction: 8,
-        useNativeDriver: true,
-      }).start();
-    }
-  };
 
   useEffect(() => {
     Animated.parallel([
@@ -230,6 +235,18 @@ export default function HomeScreen() {
     return deck.cards.filter((c) => c.nextReview <= today).length;
   };
 
+  const getFormattedDate = () => {
+    const options: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'short', day: 'numeric' };
+    return new Date().toLocaleDateString('en-US', options).toUpperCase();
+  };
+
+  const getGreetingText = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning,';
+    if (hour < 17) return 'Good afternoon,';
+    return 'Good evening,';
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView
@@ -243,55 +260,60 @@ export default function HomeScreen() {
             transform: [{ translateY: slideAnim }],
           }}
         >
-          {/* Header */}
-          <Text style={styles.greeting}>{getGreeting()}</Text>
-          <Text style={styles.title}>What shall we{'\n'}study today?</Text>
+          {/* Header Row: Streak & Circle Actions */}
+          <View style={styles.topActionsRow}>
+            <Pressable style={styles.streakCapsule} onPress={() => router.push('/progress' as any)}>
+              <Ionicons name="flame" size={16} color="#e8873a" />
+              <Text style={styles.streakCapsuleText}>{streak} day streak!</Text>
+            </Pressable>
 
-          {/* Owl Banner CTA */}
-          <View style={styles.bannerCard}>
-            <Image
-              source={require('../../assets/Nexa.png')}
-              style={styles.bannerOwl}
-              contentFit="contain"
-            />
-            <View style={styles.bannerTextCol}>
-              <Text style={styles.bannerTitle}>
-                {totalDue} card{totalDue !== 1 ? 's' : ''} due today
-              </Text>
-              <Text style={styles.bannerSubtitle}>
-                Keep your streak alive, Scholar!
-              </Text>
-              <Pressable
-                style={styles.bannerButton}
-                onPress={() => {
-                  // Find first deck with due cards
-                  const today = getToday();
-                  const deckWithDue = decks.find((d) =>
-                    d.cards.some((c) => c.nextReview <= today)
-                  );
-                  if (deckWithDue) {
-                    router.push({
-                      pathname: '/study' as any,
-                      params: { deckId: deckWithDue.id },
-                    });
-                  } else {
-                    router.push('/study' as any);
-                  }
-                }}
-              >
-                <Text style={styles.bannerButtonText}>Study now</Text>
+            <View style={styles.circleActionsGroup}>
+              <Pressable style={styles.circleActionButton} onPress={() => Alert.alert('Notifications', 'Your Scholar notifications are all caught up!')}>
+                <Ionicons name="notifications-outline" size={18} color={Colors.primary} />
               </Pressable>
+              <Pressable style={styles.circleActionButton} onPress={() => router.push('/profile' as any)}>
+                <Ionicons name="settings-outline" size={18} color={Colors.primary} />
+              </Pressable>
+            </View>
+          </View>
+
+          {/* Date & Bold Dynamic Greeting */}
+          <View style={styles.greetingHeaderBlock}>
+            <Text style={styles.dateLabelText}>{getFormattedDate()}</Text>
+            <Text style={styles.greetingGreetingText}>
+              {getGreetingText()} <Text style={styles.greetingNameText}>J_Stellar6!</Text>
+            </Text>
+          </View>
+
+          {/* Scholar Nexa Owl Speech Bubble Mascot Banner */}
+          <View style={styles.mascotSpeechContainer}>
+            <View style={styles.mascotWrapper}>
+              <Image
+                source={require('../../assets/nexa (2).png')}
+                style={styles.mascotImage}
+                contentFit="contain"
+              />
+            </View>
+            <View style={styles.speechTriangleBorder} />
+            <View style={styles.speechTriangleFill} />
+            <View style={styles.speechBubble}>
+              <Text style={styles.speechMascotName}>Nexa</Text>
+              <Text style={styles.speechBubbleText}>
+                {totalDue > 0
+                  ? `J_Stellar6, hoot! You have ${totalDue} review card${totalDue !== 1 ? 's' : ''} scheduled for today. Keep up your streak, let's nail these reviews!`
+                  : "J_Stellar6, hoot! Your deck reviews are completely clear for today. Let's create a new study guide or practice test to expand our knowledge!"}
+              </Text>
             </View>
           </View>
 
           {/* Stats Row */}
           <View style={styles.statsRow}>
             <StatBox
-              icon="flame"
-              iconColor="#e8873a"
+              icon="book"
+              iconColor={Colors.primary}
               iconBg={Colors.accentBadgeBg}
-              value={streak}
-              label="Day Streak"
+              value={decks.length}
+              label="Total Studies"
             />
             <StatBox
               icon="star"
@@ -301,6 +323,51 @@ export default function HomeScreen() {
               label="Cards Mastered"
             />
           </View>
+
+          {/* Recents Section */}
+          {recentGuides.length > 0 && (
+            <View style={styles.recentsContainer}>
+              <Text style={styles.sectionLabel}>RECENTS</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.recentsScroll}
+              >
+                {recentGuides.map((guide) => (
+                  <Pressable
+                    key={guide.id}
+                    style={styles.recentCard}
+                    onPress={() => {
+                      if (guide.keyTerms && guide.keyTerms.length > 0) {
+                        router.push({
+                          pathname: '/study-guide' as any,
+                          params: { deckId: guide.id },
+                        });
+                      } else {
+                        router.push({
+                          pathname: '/study-session' as any,
+                          params: { deckId: guide.id },
+                        });
+                      }
+                    }}
+                  >
+                    <View style={styles.recentCardHeader}>
+                      <View style={[styles.recentEmojiBox, { backgroundColor: '#f0eaff' }]}>
+                        <Ionicons name="book" size={12} color={Colors.primary} />
+                      </View>
+                      <Text style={styles.recentDate}>{guide.createdDate || '19/05/2026'}</Text>
+                    </View>
+                    <Text style={guide.name.length > 14 ? styles.recentNameSmall : styles.recentName} numberOfLines={2}>
+                      {guide.name}
+                    </Text>
+                    <Text style={styles.recentCardsCount}>
+                      {guide.cards.length} cards
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
 
           {/* Deck Section */}
           <Text style={styles.sectionLabel}>YOUR DECKS</Text>
@@ -313,12 +380,20 @@ export default function HomeScreen() {
               colorTag={deck.colorTag}
               totalCards={deck.cards.length}
               dueCount={getDueCountForDeck(deck.id)}
-              onPress={() =>
-                router.push({
-                  pathname: '/study' as any,
-                  params: { deckId: deck.id },
-                })
-              }
+              onPress={() => {
+                if (deck.keyTerms && deck.keyTerms.length > 0) {
+                  router.push({
+                    pathname: '/study-guide' as any,
+                    params: { deckId: deck.id },
+                  });
+                } else {
+                  router.push({
+                    pathname: '/study-session' as any,
+                    params: { deckId: deck.id },
+                  });
+                }
+              }}
+              onDelete={() => deleteDeck(deck.id)}
             />
           ))}
 
@@ -330,7 +405,7 @@ export default function HomeScreen() {
                 contentFit="contain"
               />
               <Text style={styles.emptyText}>
-                No decks yet! Tap + to create one.
+                No decks yet! Head over to the Study Center to get started.
               </Text>
             </View>
           )}
@@ -338,190 +413,6 @@ export default function HomeScreen() {
           <View style={{ height: 100 }} />
         </Animated.View>
       </ScrollView>
-
-      {/* Interactive FAB Menu Overlay */}
-      {isFabOpen && (
-        <>
-          {/* Transparent Backdrop */}
-          <Pressable style={styles.backdrop} onPress={toggleFabMenu}>
-            <Animated.View
-              style={[
-                styles.backdropBackground,
-                {
-                  opacity: menuAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, 0.4],
-                  }),
-                },
-              ]}
-            />
-          </Pressable>
-
-          {/* Animated Menu Card */}
-          <Animated.View
-            style={[
-              styles.menuCard,
-              {
-                opacity: menuAnim,
-                transform: [
-                  {
-                    translateY: menuAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [60, 0],
-                    }),
-                  },
-                  {
-                    scale: menuAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.9, 1],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <View style={styles.menuHeader}>
-              <Text style={styles.menuTitle}>Nexa Study Hub</Text>
-              <Text style={styles.menuSubtitle}>What would you like to create?</Text>
-            </View>
-
-            {/* Option 1: Flashcard Set */}
-            <Pressable
-              style={styles.menuOption}
-              onPress={() => setIsSubMenuOpen(!isSubMenuOpen)}
-            >
-              <View style={[styles.menuOptionIconBox, { backgroundColor: '#f0eaff' }]}>
-                <Ionicons name="layers" size={20} color={Colors.primary} />
-              </View>
-              <View style={styles.menuOptionTextCol}>
-                <Text style={styles.menuOptionTitle}>Flashcard Set</Text>
-                <Text style={styles.menuOptionDesc}>Manual creation or AI import from document</Text>
-              </View>
-              <Ionicons
-                name={isSubMenuOpen ? 'chevron-down' : 'chevron-forward'}
-                size={16}
-                color={Colors.mutedText}
-              />
-            </Pressable>
-
-            {/* Flashcard Sub-options */}
-            {isSubMenuOpen && (
-              <View style={styles.subMenu}>
-                <Pressable
-                  style={styles.subMenuItem}
-                  onPress={() => {
-                    toggleFabMenu();
-                    router.push('/create-deck' as any);
-                  }}
-                >
-                  <Ionicons name="create-outline" size={16} color={Colors.primary} />
-                  <Text style={styles.subMenuItemText}>Create Manually</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.subMenuItem}
-                  onPress={() => {
-                    toggleFabMenu();
-                    router.push('/import-deck' as any);
-                  }}
-                >
-                  <Ionicons name="sparkles-outline" size={16} color={Colors.primary} />
-                  <Text style={styles.subMenuItemText}>Import with AI (PDF/PPT)</Text>
-                </Pressable>
-              </View>
-            )}
-
-            {/* Option 2: AI Study Guide */}
-            <Pressable
-              style={styles.menuOption}
-              onPress={() => setIsStudyGuideSubMenuOpen(!isStudyGuideSubMenuOpen)}
-            >
-              <View style={[styles.menuOptionIconBox, { backgroundColor: '#eef8ff' }]}>
-                <Ionicons name="book" size={20} color="#3598db" />
-              </View>
-              <View style={styles.menuOptionTextCol}>
-                <Text style={styles.menuOptionTitle}>Study Guide</Text>
-                <Text style={styles.menuOptionDesc}>Generate complete textbook notes & summaries</Text>
-              </View>
-              <Ionicons
-                name={isStudyGuideSubMenuOpen ? 'chevron-down' : 'chevron-forward'}
-                size={16}
-                color={Colors.mutedText}
-              />
-            </Pressable>
-
-            {/* Study Guide Sub-options */}
-            {isStudyGuideSubMenuOpen && (
-              <View style={styles.subMenu}>
-                <Pressable
-                  style={styles.subMenuItem}
-                  onPress={() => {
-                    toggleFabMenu();
-                    router.push({
-                      pathname: '/study-guide' as any,
-                      params: { mode: 'deck' },
-                    });
-                  }}
-                >
-                  <Ionicons name="albums-outline" size={16} color="#3598db" />
-                  <Text style={styles.subMenuItemText}>Summarize Deck</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.subMenuItem}
-                  onPress={() => {
-                    toggleFabMenu();
-                    router.push({
-                      pathname: '/study-guide' as any,
-                      params: { mode: 'document' },
-                    });
-                  }}
-                >
-                  <Ionicons name="document-text-outline" size={16} color="#3598db" />
-                  <Text style={styles.subMenuItemText}>Upload Document</Text>
-                </Pressable>
-              </View>
-            )}
-
-            {/* Option 3: Practice Test */}
-            <Pressable
-              style={styles.menuOption}
-              onPress={() => {
-                toggleFabMenu();
-                router.push('/practice-test' as any);
-              }}
-            >
-              <View style={[styles.menuOptionIconBox, { backgroundColor: '#fff7eb' }]}>
-                <Ionicons name="ribbon" size={20} color="#e67e22" />
-              </View>
-              <View style={styles.menuOptionTextCol}>
-                <Text style={styles.menuOptionTitle}>Practice Test</Text>
-                <Text style={styles.menuOptionDesc}>Quiz yourself with customized exams</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} />
-            </Pressable>
-          </Animated.View>
-        </>
-      )}
-
-      {/* Main Floating Action Button */}
-      <Animated.View
-        style={[
-          styles.fabContainer,
-          {
-            transform: [
-              {
-                rotate: menuAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['0deg', '135deg'],
-                }),
-              },
-            ],
-          },
-        ]}
-      >
-        <Pressable style={styles.fab} onPress={toggleFabMenu}>
-          <Ionicons name="add" size={28} color={Colors.white} />
-        </Pressable>
-      </Animated.View>
     </View>
   );
 }
@@ -539,97 +430,193 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing.xxl,
   },
-  greeting: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: Colors.mutedText,
-    letterSpacing: 0.5,
+  topActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: Spacing.xl,
+    marginBottom: Spacing.xl,
   },
-  title: {
+  streakCapsule: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: Colors.accentBadgeBg,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.pill,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: 8,
+  },
+  streakCapsuleText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12,
+    color: Colors.headingText,
+  },
+  circleActionsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  circleActionButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  greetingHeaderBlock: {
+    marginBottom: Spacing.xs,
+  },
+  dateLabelText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 11,
+    color: Colors.mutedText,
+    letterSpacing: 1.2,
+    marginBottom: 4,
+  },
+  greetingGreetingText: {
     fontFamily: Fonts.display,
     fontSize: 24,
     color: Colors.headingText,
-    marginTop: Spacing.md,
     lineHeight: 32,
   },
-
-  // Banner
-  bannerCard: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.pill,
+  greetingNameText: {
+    fontFamily: Fonts.display,
+    color: Colors.primary,
+  },
+  mascotSpeechContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Spacing.xl,
-    marginTop: Spacing.xxxl,
-    overflow: 'hidden',
+    marginTop: -10,
+    marginBottom: -6,
   },
-  bannerOwl: {
-    width: 52,
-    height: 52,
+  mascotWrapper: {
+    width: 140,
+    height: 140,
+    marginRight: -55,
+    zIndex: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ translateX: -8 }],
   },
-  bannerTextCol: {
+  mascotImage: {
+    width: '100%',
+    height: '100%',
+  },
+  speechBubble: {
     flex: 1,
-    marginLeft: Spacing.lg,
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1.5,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.xl,
+    paddingVertical: Spacing.xl,
+    paddingRight: Spacing.xl,
+    paddingLeft: 44,
+    position: 'relative',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  bannerTitle: {
+  speechTriangleBorder: {
+    position: 'absolute',
+    left: 74.5,
+    top: 41.5,
+    zIndex: 3,
+    width: 0,
+    height: 0,
+    borderTopWidth: 8.5,
+    borderTopColor: 'transparent',
+    borderRightWidth: 15.5,
+    borderRightColor: Colors.cardBorder,
+    borderBottomWidth: 8.5,
+    borderBottomColor: 'transparent',
+  },
+  speechTriangleFill: {
+    position: 'absolute',
+    left: 76,
+    top: 42,
+    zIndex: 4,
+    width: 0,
+    height: 0,
+    borderTopWidth: 8,
+    borderTopColor: 'transparent',
+    borderRightWidth: 14,
+    borderRightColor: Colors.cardSurface,
+    borderBottomWidth: 8,
+    borderBottomColor: 'transparent',
+  },
+  speechMascotName: {
     fontFamily: Fonts.display,
-    fontSize: 15,
-    color: Colors.white,
+    fontSize: 14,
+    color: Colors.primary,
+    marginBottom: 4,
   },
-  bannerSubtitle: {
+  speechBubbleText: {
     fontFamily: Fonts.body,
-    fontSize: 11,
-    color: Colors.subtitleText,
-    marginTop: 2,
+    fontSize: 12,
+    color: Colors.headingText,
+    lineHeight: 18,
   },
-  bannerButton: {
-    backgroundColor: Colors.white,
+  speechButton: {
+    backgroundColor: Colors.primary,
     borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
     paddingVertical: 6,
     alignSelf: 'flex-start',
-    marginTop: Spacing.md,
+    marginTop: Spacing.lg,
   },
-  bannerButtonText: {
+  speechButtonText: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 12,
-    color: Colors.primary,
+    fontSize: 11,
+    color: Colors.white,
   },
 
   // Stats
   statsRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: Spacing.xl,
+    gap: 12,
+    marginTop: 8,
   },
   statBox: {
     flex: 1,
     backgroundColor: Colors.cardSurface,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: Colors.cardBorder,
     borderRadius: BorderRadius.xxl,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Spacing.lg,
-    gap: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.lg,
+    gap: 12,
   },
   statIconBox: {
-    width: 34,
-    height: 34,
-    borderRadius: BorderRadius.md,
+    width: 38,
+    height: 38,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  statTextColumn: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+  },
   statValue: {
     fontFamily: Fonts.bodyExtraBold,
-    fontSize: 18,
+    fontSize: 22,
     color: Colors.headingText,
+    lineHeight: 26,
   },
   statLabel: {
-    fontFamily: Fonts.body,
-    fontSize: 10,
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 11,
     color: Colors.mutedText,
+    marginTop: 2,
   },
 
   // Section
@@ -639,8 +626,8 @@ const styles = StyleSheet.create({
     color: Colors.mutedText,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
-    marginTop: Spacing.xxxl,
-    marginBottom: Spacing.lg,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
 
   // Deck Card
@@ -688,6 +675,18 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bodyBold,
     fontSize: 10,
   },
+  deckCardRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deckDeleteBtn: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: '#ffe8f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
   // Empty state
   emptyState: {
@@ -722,7 +721,7 @@ const styles = StyleSheet.create({
   },
   menuCard: {
     position: 'absolute',
-    bottom: 165,
+    bottom: 99,
     right: Spacing.xxl,
     left: Spacing.xxl,
     backgroundColor: Colors.cardSurface,
@@ -806,7 +805,7 @@ const styles = StyleSheet.create({
   // FAB Base Container
   fabContainer: {
     position: 'absolute',
-    bottom: 90,
+    bottom: 24,
     right: Spacing.xxl,
     width: 56,
     height: 56,
@@ -824,5 +823,73 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 8,
+  },
+
+  // Recents List Styles
+  recentsContainer: {
+    marginTop: Spacing.md,
+    marginBottom: 0,
+  },
+  recentsScroll: {
+    paddingLeft: 2,
+    paddingRight: Spacing.xxl,
+    paddingVertical: Spacing.sm,
+    gap: Spacing.xl,
+  },
+  recentCard: {
+    width: 180,
+    height: 95,
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1.5,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.xl,
+    padding: 10,
+    elevation: 2,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+  },
+  recentCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  recentEmojiBox: {
+    width: 32,
+    height: 32,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.accentBadgeBg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recentEmoji: {
+    fontSize: 16,
+  },
+  recentDate: {
+    fontFamily: Fonts.body,
+    fontSize: 8,
+    color: Colors.mutedText,
+  },
+  recentName: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12,
+    color: Colors.headingText,
+    lineHeight: 16,
+    marginBottom: 4,
+  },
+  recentNameSmall: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 10,
+    color: Colors.headingText,
+    lineHeight: 14,
+    marginBottom: 4,
+  },
+  recentCardsCount: {
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 9,
+    color: Colors.primary,
+    marginTop: 'auto',
   },
 });

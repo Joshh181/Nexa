@@ -50,7 +50,7 @@ export default function PracticeTestScreen() {
       return;
     }
     if (!isAIConfigured()) {
-      setError('AI is not configured. Contact the developer.');
+      setError('Gemini API key is not configured. Please set up the EXPO_PUBLIC_GEMINI_API_KEY environment variable to enable practice test generation!');
       return;
     }
 
@@ -145,7 +145,13 @@ export default function PracticeTestScreen() {
 
           <Pressable
             style={[styles.retryBtn, styles.finishBtn]}
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/' as any);
+              }
+            }}
           >
             <Text style={styles.finishBtnText}>Finish Practice</Text>
           </Pressable>
@@ -162,7 +168,16 @@ export default function PracticeTestScreen() {
       <View style={[styles.container, { paddingTop: insets.top }]}>
         {/* Header */}
         <View style={styles.header}>
-          <Pressable style={styles.backBtn} onPress={() => router.back()}>
+          <Pressable
+            style={styles.backBtn}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/' as any);
+              }
+            }}
+          >
             <Ionicons name="arrow-back" size={20} color={Colors.primary} />
           </Pressable>
           <Text style={styles.headerTitle}>Practice Tests</Text>
@@ -301,9 +316,9 @@ export default function PracticeTestScreen() {
             const isCorrect = opt === currentQuestion.answer;
             const isSelected = opt === selectedAnswer;
 
-            let optStyle = styles.optionItem;
+            let optStyle: any = styles.optionItem;
             let iconName: keyof typeof Ionicons.glyphMap = 'radio-button-off';
-            let iconColor = Colors.mutedText;
+            let iconColor: string = Colors.mutedText;
 
             if (isAnswered) {
               if (isSelected) {

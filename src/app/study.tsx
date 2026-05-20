@@ -1,13 +1,14 @@
 /**
- * Nexa — Study Screen
- * Flashcard review with flip animation, SRS rating, and owl tips
+ * Nexa — Study Center Dashboard Screen
+ * High-fidelity premium hub for organizing study decks, managing AI Summaries,
+ * and utilizing the custom Study Creator Menu.
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
-import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { router } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Pressable,
   ScrollView,
@@ -17,193 +18,618 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Colors, Fonts, Spacing, BorderRadius } from '@/constants/theme';
-import { useNexaStore, type Card } from '@/store/useNexaStore';
-
-const NEXA_TIPS = [
-  "Nexa says: A wise scholar reviews hard cards first.",
-  "Nexa says: Spaced repetition is the ancient art of remembering.",
-  "Nexa says: Mark 'Hard' freely — I'll bring them back at the right moment.",
-  "Nexa says: Even the owl reviews at night. Consistency beats intensity.",
-  "Nexa says: Take your time. True knowledge cannot be rushed.",
-  "Nexa says: Every card reviewed is a step towards mastery.",
-  "Nexa says: The journey of a thousand cards begins with a single flip.",
-  "Nexa says: Trust the process, Scholar. Your brain is building connections.",
-];
-
-const owlImage = require('../../assets/Nexa.png');
-
-function CelebrationModal({ onClose }: { onClose: () => void }) {
-  const bounceAnim = useRef(new Animated.Value(0)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(bounceAnim, { toValue: 1, friction: 3, tension: 40, useNativeDriver: true }),
-      Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
-    ]).start();
-  }, []);
-  return (
-    <Animated.View style={[styles.celebOverlay, { opacity: fadeAnim }]}>  
-      <Animated.View style={[styles.celebCard, { transform: [{ scale: bounceAnim }] }]}>
-        <Image source={owlImage} style={styles.celebOwl} contentFit="contain" />
-        <Text style={styles.celebTitle}>Splendid, Scholar!</Text>
-        <Text style={styles.celebSub}>Nexa is proud of you. You've completed this session!</Text>
-        <Pressable style={styles.celebBtn} onPress={onClose}>
-          <Text style={styles.celebBtnTxt}>Continue</Text>
-        </Pressable>
-      </Animated.View>
-    </Animated.View>
-  );
-}
-
-function FlashCard({ card, isFlipped, onFlip }: { card: Card; isFlipped: boolean; onFlip: () => void }) {
-  const flipAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.timing(flipAnim, { toValue: isFlipped ? 1 : 0, duration: 400, useNativeDriver: true }).start();
-  }, [isFlipped]);
-  const frontRotate = flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['0deg', '90deg', '90deg'] });
-  const backRotate = flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['90deg', '90deg', '0deg'] });
-  const frontOp = flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0, 0] });
-  const backOp = flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0, 1] });
-  return (
-    <Pressable onPress={onFlip} style={styles.fcContainer}>
-      <Animated.View style={[styles.fc, { transform: [{ perspective: 1000 }, { rotateY: frontRotate }], opacity: frontOp }]}>
-        <View style={styles.fcBadge}><Text style={styles.fcBadgeTxt}>Question</Text></View>
-        <Text style={styles.fcQ}>{card.front}</Text>
-        {!isFlipped && <Text style={styles.tapHint}>tap to reveal →</Text>}
-      </Animated.View>
-      <Animated.View style={[styles.fc, styles.fcBack, { transform: [{ perspective: 1000 }, { rotateY: backRotate }], opacity: backOp }]}>
-        <View style={[styles.fcBadge, { backgroundColor: Colors.easyBg }]}><Text style={styles.fcBadgeTxt}>Answer</Text></View>
-        <Text style={styles.fcQ}>{card.front}</Text>
-        <View style={styles.fcDiv} />
-        <Text style={styles.fcA}>{card.back}</Text>
-      </Animated.View>
-    </Pressable>
-  );
-}
+import { BorderRadius, Colors, Fonts, Spacing } from '@/constants/theme';
+import { useNexaStore } from '@/store/useNexaStore';
 
 export default function StudyScreen() {
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ deckId?: string }>();
-  const { decks, rateCard, getDueCards, recordStudySession } = useNexaStore();
-  const deck = useMemo(() => decks.find((d) => d.id === params.deckId), [decks, params.deckId]);
-  const dueCards = useMemo(() => (params.deckId ? getDueCards(params.deckId) : []), [params.deckId, decks]);
-  const [idx, setIdx] = useState(0);
-  const [flipped, setFlipped] = useState(false);
-  const [showRating, setShowRating] = useState(false);
-  const [showCeleb, setShowCeleb] = useState(false);
-  const [completed, setCompleted] = useState(0);
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(0)).current;
-  const ratingFade = useRef(new Animated.Value(0)).current;
+  const { decks, deleteDeck, getTotalDueCards, getDueCards } = useNexaStore();
+  const totalDue = getTotalDueCards();
 
-  useEffect(() => {
-    if (dueCards.length > 0) Animated.timing(progressAnim, { toValue: (idx + 1) / dueCards.length, duration: 300, useNativeDriver: false }).start();
-  }, [idx, dueCards.length]);
+  // Create menu sheet animation
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const createAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    if (showRating) Animated.timing(ratingFade, { toValue: 1, duration: 250, useNativeDriver: true }).start();
-    else ratingFade.setValue(0);
-  }, [showRating]);
-
-  const handleFlip = () => { if (!flipped) { setFlipped(true); setShowRating(true); } };
-
-  const handleRate = (rating: 'again' | 'hard' | 'easy') => {
-    if (!deck || !dueCards[idx]) return;
-    rateCard(deck.id, dueCards[idx].id, rating);
-    const newC = completed + 1;
-    setCompleted(newC);
-    Animated.timing(slideAnim, { toValue: -400, duration: 250, useNativeDriver: true }).start(() => {
-      if (idx + 1 >= dueCards.length) { recordStudySession(newC); setShowCeleb(true); }
-      else { setIdx(i => i + 1); setFlipped(false); setShowRating(false); slideAnim.setValue(300); Animated.spring(slideAnim, { toValue: 0, friction: 8, useNativeDriver: true }).start(); }
-    });
+  const toggleCreateMenu = () => {
+    if (isCreateOpen) {
+      Animated.timing(createAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => setIsCreateOpen(false));
+    } else {
+      setIsCreateOpen(true);
+      Animated.spring(createAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }).start();
+    }
   };
 
-  if (!deck || dueCards.length === 0) {
-    return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <View style={styles.emptyC}>
-          <Image source={owlImage} style={styles.emptyOwl} contentFit="contain" />
-          <Text style={styles.emptyT}>{!deck ? 'Select a Deck' : 'All caught up!'}</Text>
-          <Text style={styles.emptySub}>{!deck ? 'Choose a deck from Home to study.' : 'Nexa says: Great work! No cards due.'}</Text>
-          <Pressable style={styles.homeBtn} onPress={() => router.push('/' as any)}><Text style={styles.homeBtnTxt}>Go to Home</Text></Pressable>
-        </View>
-      </View>
-    );
-  }
+  const aiGuides = decks.filter(
+    (d) => (d.keyTerms && d.keyTerms.length > 0) || (d.keyConcepts && d.keyConcepts.length > 0)
+  );
+  const standardDecks = decks.filter((d) => !aiGuides.includes(d));
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {showCeleb && <CelebrationModal onClose={() => { setShowCeleb(false); router.push('/' as any); }} />}
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Pressable style={styles.backBtn} onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={16} color={Colors.primary} />
-            <Text style={styles.backTxt}>Back</Text>
-          </Pressable>
-          <Text style={styles.deckTitle} numberOfLines={1}>{deck.name}</Text>
-          <Text style={styles.counter}>{idx + 1} / {dueCards.length}</Text>
+      <ScrollView contentContainerStyle={styles.centerScroll} showsVerticalScrollIndicator={false}>
+        {/* Header block with title */}
+        <View style={styles.centerHeader}>
+          <View>
+            <Text style={styles.centerLabel}>Nexa Hub</Text>
+            <Text style={styles.centerTitle}>Study Center</Text>
+          </View>
         </View>
-        <View style={styles.progTrack}><Animated.View style={[styles.progFill, { width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) }]} /></View>
-        <Animated.View style={{ transform: [{ translateX: slideAnim }] }}>
-          <FlashCard card={dueCards[idx]} isFlipped={flipped} onFlip={handleFlip} />
-        </Animated.View>
-        {showRating && (
-          <Animated.View style={[styles.ratingRow, { opacity: ratingFade }]}>
-            <Pressable style={[styles.rBtn, styles.rAgain]} onPress={() => handleRate('again')}><Text style={[styles.rLbl, { color: Colors.againText }]}>Again</Text></Pressable>
-            <Pressable style={[styles.rBtn, styles.rHard]} onPress={() => handleRate('hard')}><Text style={[styles.rLbl, { color: Colors.hardText }]}>Hard</Text></Pressable>
-            <Pressable style={[styles.rBtn, styles.rEasy]} onPress={() => handleRate('easy')}><Text style={[styles.rLbl, { color: Colors.easyText }]}>Easy</Text></Pressable>
-          </Animated.View>
+
+        {/* Quick stats capsule banner */}
+        <View style={styles.quickStatsRow}>
+          <View style={styles.quickStatCol}>
+            <Text style={styles.quickStatNum}>{decks.length}</Text>
+            <Text style={styles.quickStatLbl}>Active Studies</Text>
+          </View>
+          <View style={styles.quickStatDivider} />
+          <View style={styles.quickStatCol}>
+            <Text style={styles.quickStatNum}>{aiGuides.length}</Text>
+            <Text style={styles.quickStatLbl}>AI Summaries</Text>
+          </View>
+          <View style={styles.quickStatDivider} />
+          <View style={styles.quickStatCol}>
+            <Text style={[styles.quickStatNum, { color: totalDue > 0 ? Colors.primary : Colors.headingText }]}>
+              {totalDue}
+            </Text>
+            <Text style={styles.quickStatLbl}>Due Reviews</Text>
+          </View>
+        </View>
+
+        {/* Category 1: AI Study Guides (featured card grid layout) */}
+        <Text style={styles.centerSectionTitle}>AI STUDY GUIDES & SUMMARIES</Text>
+        {aiGuides.length === 0 ? (
+          <View style={styles.emptyPremiumCard}>
+            <Ionicons name="sparkles-outline" size={24} color={Colors.mutedText} />
+            <Text style={styles.emptyPremiumText}>No AI Study Guides generated yet.</Text>
+            <Pressable style={styles.premiumTextLink} onPress={toggleCreateMenu}>
+              <Text style={styles.premiumTextLinkTxt}>Generate with AI →</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.gridContainer}>
+            {aiGuides.map((guide) => (
+              <Pressable
+                key={guide.id}
+                style={styles.aiGuidePremiumCard}
+                onPress={() => router.push({ pathname: '/study-guide' as any, params: { deckId: guide.id } })}
+              >
+                <View style={styles.aiCardHeader}>
+                  <View style={[styles.aiEmojiCircle, { backgroundColor: '#f0eaff' }]}>
+                    <Ionicons name="book" size={14} color={Colors.primary} />
+                  </View>
+                  <Pressable
+                    style={styles.deletePremiumBtn}
+                    hitSlop={8}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      Alert.alert(
+                        'Delete Study Guide',
+                        `Delete "${guide.name}" permanently?`,
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Delete', style: 'destructive', onPress: () => deleteDeck(guide.id) }
+                        ]
+                      );
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={14} color="#c04070" />
+                  </Pressable>
+                </View>
+                <Text style={styles.aiCardName} numberOfLines={2}>{guide.name}</Text>
+
+                <View style={styles.aiCardStats}>
+                  <View style={styles.aiStatBadge}>
+                    <Ionicons name="layers" size={10} color={Colors.primary} />
+                    <Text style={styles.aiStatTxt}>{guide.cards.length} Cards</Text>
+                  </View>
+                  {guide.keyTerms && (
+                    <View style={[styles.aiStatBadge, { backgroundColor: '#eef8ff' }]}>
+                      <Ionicons name="book" size={10} color="#3598db" />
+                      <Text style={[styles.aiStatTxt, { color: '#3598db' }]}>{guide.keyTerms.length} Terms</Text>
+                    </View>
+                  )}
+                </View>
+              </Pressable>
+            ))}
+          </View>
         )}
-        <View style={styles.tipBox}>
-          <Image source={owlImage} style={styles.tipOwl} contentFit="contain" />
-          <Text style={styles.tipTxt}>{NEXA_TIPS[idx % NEXA_TIPS.length]}</Text>
-        </View>
-        <View style={{ height: 40 }} />
+
+        {/* Category 2: Standard Study Decks */}
+        <Text style={styles.centerSectionTitle}>STANDARD FLASHCARD DECKS</Text>
+        {standardDecks.length === 0 ? (
+          <View style={styles.emptyPremiumCard}>
+            <Ionicons name="layers-outline" size={24} color={Colors.mutedText} />
+            <Text style={styles.emptyPremiumText}>No flashcard decks created yet.</Text>
+            <Pressable style={styles.premiumTextLink} onPress={toggleCreateMenu}>
+              <Text style={styles.premiumTextLinkTxt}>Create manually →</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.standardDecksList}>
+            {standardDecks.map((deck) => (
+              <Pressable
+                key={deck.id}
+                style={styles.premiumDeckListItem}
+                onPress={() => router.push({ pathname: '/study-session' as any, params: { deckId: deck.id } })}
+              >
+                <View style={[styles.listEmojiBox, { backgroundColor: Colors.purpleDeckBg }]}>
+                  <Ionicons name="layers" size={14} color={Colors.primary} />
+                </View>
+                <View style={styles.listInfo}>
+                  <Text style={styles.listName} numberOfLines={1}>{deck.name}</Text>
+                  <Text style={styles.listCardsCount}>{deck.cards.length} flashcards</Text>
+                </View>
+                <View style={styles.listRight}>
+                  {getDueCards(deck.id).length > 0 && (
+                    <View style={styles.listDuePill}>
+                      <Text style={styles.listDueText}>{getDueCards(deck.id).length} due</Text>
+                    </View>
+                  )}
+                  <Pressable
+                    style={styles.deletePremiumBtn}
+                    hitSlop={8}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      Alert.alert(
+                        'Delete Deck',
+                        `Delete "${deck.name}" permanently?`,
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Delete', style: 'destructive', onPress: () => deleteDeck(deck.id) }
+                        ]
+                      );
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={15} color="#c04070" />
+                  </Pressable>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        <View style={{ height: 120 }} />
       </ScrollView>
+
+      {/* Gorgeous Creation Modal Overlay ("+ button") */}
+      {isCreateOpen && (
+        <>
+          <Pressable style={styles.modalBackdrop} onPress={toggleCreateMenu}>
+            <Animated.View
+              style={[
+                styles.backdropBg,
+                {
+                  opacity: createAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 0.5],
+                  }),
+                },
+              ]}
+            />
+          </Pressable>
+
+          <Animated.View
+            style={[
+              styles.modalPanel,
+              {
+                opacity: createAnim,
+                transform: [
+                  {
+                    translateY: createAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [400, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <View style={styles.headerBar} />
+              <Text style={styles.modalTitle}>Scholar Creator</Text>
+              <Text style={styles.modalSub}>Select a premium study engine</Text>
+            </View>
+
+            {/* Option 1: Manual Deck */}
+            <Pressable
+              style={styles.engineCard}
+              onPress={() => {
+                toggleCreateMenu();
+                router.push('/create-deck' as any);
+              }}
+            >
+              <View style={[styles.engineIconBox, { backgroundColor: '#f0eaff' }]}>
+                <Ionicons name="create-outline" size={20} color={Colors.primary} />
+              </View>
+              <View style={styles.engineInfo}>
+                <Text style={styles.engineName}>Create Manually</Text>
+                <Text style={styles.engineDesc}>Build a classical flashcard deck item</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} />
+            </Pressable>
+
+            {/* Option 2: AI Import */}
+            <Pressable
+              style={styles.engineCard}
+              onPress={() => {
+                toggleCreateMenu();
+                router.push('/import-deck' as any);
+              }}
+            >
+              <View style={[styles.engineIconBox, { backgroundColor: '#e8f8ee' }]}>
+                <Ionicons name="sparkles-outline" size={20} color="#1a7a40" />
+              </View>
+              <View style={styles.engineInfo}>
+                <Text style={styles.engineName}>AI Document Import</Text>
+                <Text style={styles.engineDesc}>Convert PDF/PPT textbook materials instantly</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} />
+            </Pressable>
+
+            {/* Option 3: AI Study Guide */}
+            <Pressable
+              style={styles.engineCard}
+              onPress={() => {
+                toggleCreateMenu();
+                router.push({
+                  pathname: '/study-guide' as any,
+                  params: { mode: 'document' },
+                });
+              }}
+            >
+              <View style={[styles.engineIconBox, { backgroundColor: '#eef8ff' }]}>
+                <Ionicons name="book-outline" size={20} color="#3598db" />
+              </View>
+              <View style={styles.engineInfo}>
+                <Text style={styles.engineName}>AI Study Guide</Text>
+                <Text style={styles.engineDesc}>Generate comprehensive timelines & analytic notes</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} />
+            </Pressable>
+
+            {/* Option 4: Practice Test */}
+            <Pressable
+              style={styles.engineCard}
+              onPress={() => {
+                toggleCreateMenu();
+                router.push('/practice-test' as any);
+              }}
+            >
+              <View style={[styles.engineIconBox, { backgroundColor: '#fff7eb' }]}>
+                <Ionicons name="ribbon-outline" size={20} color="#e67e22" />
+              </View>
+              <View style={styles.engineInfo}>
+                <Text style={styles.engineName}>Practice Test</Text>
+                <Text style={styles.engineDesc}>Draft a timed diagnostic exam using Gemini</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} />
+            </Pressable>
+          </Animated.View>
+        </>
+      )}
+
+      {/* Floating Action Button (FAB) */}
+      <Pressable style={styles.fab} onPress={toggleCreateMenu}>
+        <Ionicons name="add" size={28} color={Colors.white} />
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { paddingHorizontal: Spacing.xxl },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: Spacing.lg, marginBottom: Spacing.xl },
-  backBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.cardBorder, borderRadius: BorderRadius.md, paddingHorizontal: Spacing.md, paddingVertical: 6, gap: 4 },
-  backTxt: { fontFamily: Fonts.bodyBold, fontSize: 11, color: Colors.primary },
-  deckTitle: { fontFamily: Fonts.bodyBold, fontSize: 13, color: Colors.headingText, flex: 1, textAlign: 'center', marginHorizontal: Spacing.md },
-  counter: { fontFamily: Fonts.bodySemiBold, fontSize: 11, color: Colors.mutedText },
-  progTrack: { height: 6, backgroundColor: Colors.cardBorder, borderRadius: 3, marginBottom: Spacing.xxxl, overflow: 'hidden' },
-  progFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 3 },
-  fcContainer: { minHeight: 280, marginBottom: Spacing.xxl },
-  fc: { backgroundColor: Colors.cardSurface, borderWidth: 1.5, borderColor: '#d4c8f8', borderRadius: BorderRadius.round, padding: Spacing.xxxl, minHeight: 280, justifyContent: 'center', backfaceVisibility: 'hidden' },
-  fcBack: { position: 'absolute', top: 0, left: 0, right: 0 },
-  fcBadge: { position: 'absolute', top: Spacing.xl, left: Spacing.xl, backgroundColor: Colors.accentBadgeBg, paddingHorizontal: Spacing.md, paddingVertical: 3, borderRadius: BorderRadius.sm },
-  fcBadgeTxt: { fontFamily: Fonts.bodyBold, fontSize: 10, color: Colors.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
-  fcQ: { fontFamily: Fonts.display, fontSize: 18, color: Colors.headingText, lineHeight: 28, textAlign: 'center', marginTop: Spacing.huge },
-  fcDiv: { height: 1, backgroundColor: Colors.divider, marginVertical: Spacing.xl },
-  fcA: { fontFamily: Fonts.bodySemiBold, fontSize: 14, color: Colors.answerText, lineHeight: 22, textAlign: 'center' },
-  tapHint: { fontFamily: Fonts.bodySemiBold, fontSize: 10, color: Colors.tabInactive, position: 'absolute', bottom: Spacing.xl, right: Spacing.xl },
-  ratingRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.xxl },
-  rBtn: { flex: 1, paddingVertical: Spacing.lg, borderRadius: BorderRadius.xl, borderWidth: 1.5, alignItems: 'center' },
-  rAgain: { backgroundColor: Colors.againBg, borderColor: Colors.againBorder },
-  rHard: { backgroundColor: Colors.hardBg, borderColor: Colors.hardBorder },
-  rEasy: { backgroundColor: Colors.easyBg, borderColor: Colors.easyBorder },
-  rLbl: { fontFamily: Fonts.bodyBold, fontSize: 13 },
-  tipBox: { backgroundColor: Colors.cardSurface, borderWidth: 1, borderColor: Colors.cardBorder, borderRadius: BorderRadius.xxl, flexDirection: 'row', alignItems: 'center', padding: Spacing.lg, gap: Spacing.md },
-  tipOwl: { width: 32, height: 32 },
-  tipTxt: { fontFamily: Fonts.body, fontSize: 12, color: Colors.tipText, fontStyle: 'italic', flex: 1, lineHeight: 18 },
-  emptyC: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: Spacing.huge },
-  emptyOwl: { width: 100, height: 100, marginBottom: Spacing.xxxl, opacity: 0.6 },
-  emptyT: { fontFamily: Fonts.display, fontSize: 22, color: Colors.headingText, marginBottom: Spacing.md },
-  emptySub: { fontFamily: Fonts.body, fontSize: 14, color: Colors.mutedText, textAlign: 'center', lineHeight: 20 },
-  homeBtn: { backgroundColor: Colors.primary, borderRadius: BorderRadius.xxl, paddingHorizontal: Spacing.xxxl, paddingVertical: Spacing.lg, marginTop: Spacing.xxxl },
-  homeBtnTxt: { fontFamily: Fonts.bodyBold, fontSize: 14, color: Colors.white },
-  celebOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(61,43,138,0.5)', justifyContent: 'center', alignItems: 'center', zIndex: 100, padding: Spacing.huge },
-  celebCard: { backgroundColor: Colors.cardSurface, borderRadius: BorderRadius.round, padding: Spacing.huge, alignItems: 'center', width: '100%', maxWidth: 320 },
-  celebOwl: { width: 80, height: 80, marginBottom: Spacing.xl },
-  celebTitle: { fontFamily: Fonts.display, fontSize: 22, color: Colors.headingText, marginBottom: Spacing.md },
-  celebSub: { fontFamily: Fonts.body, fontSize: 14, color: Colors.mutedText, textAlign: 'center', lineHeight: 20, marginBottom: Spacing.xxxl },
-  celebBtn: { backgroundColor: Colors.primary, borderRadius: BorderRadius.xxl, paddingHorizontal: Spacing.huge, paddingVertical: Spacing.lg },
-  celebBtnTxt: { fontFamily: Fonts.bodyBold, fontSize: 14, color: Colors.white },
+  centerScroll: { paddingHorizontal: Spacing.xxl },
+  centerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: Spacing.xl,
+    marginBottom: Spacing.xl,
+  },
+  centerLabel: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 11,
+    color: Colors.mutedText,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  centerTitle: {
+    fontFamily: Fonts.display,
+    fontSize: 24,
+    color: Colors.headingText,
+    marginTop: 4,
+  },
+  quickStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.card,
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.md,
+    marginBottom: Spacing.xxxl,
+  },
+  quickStatCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  quickStatNum: {
+    fontFamily: Fonts.bodyExtraBold,
+    fontSize: 18,
+    color: Colors.headingText,
+  },
+  quickStatLbl: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 9,
+    color: Colors.mutedText,
+    marginTop: 2,
+  },
+  quickStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: Colors.divider,
+  },
+  centerSectionTitle: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 10,
+    color: Colors.mutedText,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  emptyPremiumCard: {
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.card,
+    paddingVertical: Spacing.giant,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.xxxl,
+    gap: Spacing.md,
+  },
+  emptyPremiumText: {
+    fontFamily: Fonts.body,
+    fontSize: 12,
+    color: Colors.mutedText,
+    textAlign: 'center',
+  },
+  premiumTextLink: {
+    marginTop: Spacing.sm,
+  },
+  premiumTextLinkTxt: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 11,
+    color: Colors.primary,
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.md,
+    marginBottom: Spacing.xxxl,
+  },
+  aiGuidePremiumCard: {
+    width: '47.5%',
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.card,
+    padding: Spacing.lg,
+    elevation: 2,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+  },
+  aiCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  aiEmojiCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deletePremiumBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff0f5',
+  },
+  aiCardName: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
+    color: Colors.headingText,
+    lineHeight: 18,
+    marginBottom: Spacing.md,
+  },
+  aiCardStats: {
+    flexDirection: 'row',
+    gap: 4,
+    flexWrap: 'wrap',
+  },
+  aiStatBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: Colors.accentBadgeBg,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.sm,
+  },
+  aiStatTxt: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 8,
+    color: Colors.primary,
+  },
+  standardDecksList: {
+    gap: Spacing.md,
+    marginBottom: Spacing.xxxl,
+  },
+  premiumDeckListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.card,
+    padding: Spacing.lg,
+    elevation: 2,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+  },
+  listEmojiBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.lg,
+  },
+  listInfo: {
+    flex: 1,
+  },
+  listName: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 13,
+    color: Colors.headingText,
+  },
+  listCardsCount: {
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 10,
+    color: Colors.mutedText,
+    marginTop: 2,
+  },
+  listRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  listDuePill: {
+    backgroundColor: Colors.urgentPillBg,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.sm,
+  },
+  listDueText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 9,
+    color: Colors.urgentPillText,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+  },
+  backdropBg: {
+    flex: 1,
+    backgroundColor: Colors.black,
+  },
+  modalPanel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: Colors.cardSurface,
+    borderTopLeftRadius: BorderRadius.round,
+    borderTopRightRadius: BorderRadius.round,
+    paddingHorizontal: Spacing.xxxl,
+    paddingBottom: Spacing.massive,
+    paddingTop: Spacing.xl,
+    zIndex: 101,
+    elevation: 20,
+    shadowColor: Colors.black,
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: Spacing.xxxl,
+  },
+  headerBar: {
+    width: 40,
+    height: 4,
+    backgroundColor: Colors.divider,
+    borderRadius: 2,
+    marginBottom: Spacing.lg,
+  },
+  modalTitle: {
+    fontFamily: Fonts.display,
+    fontSize: 18,
+    color: Colors.headingText,
+  },
+  modalSub: {
+    fontFamily: Fonts.body,
+    fontSize: 11,
+    color: Colors.mutedText,
+    marginTop: 4,
+  },
+  engineCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  engineIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.lg,
+  },
+  engineInfo: {
+    flex: 1,
+  },
+  engineName: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 13,
+    color: Colors.headingText,
+  },
+  engineDesc: {
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 10,
+    color: Colors.mutedText,
+    marginTop: 2,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 30,
+    right: 20,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    zIndex: 99,
+  },
 });
