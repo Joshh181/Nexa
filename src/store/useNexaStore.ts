@@ -39,6 +39,7 @@ interface NexaState {
   lastStudiedDate: string;
   totalMastered: number;
   studySessions: StudySession[];
+  customApiKey: string;
 
   // Actions
   addDeck: (deck: Omit<Deck, 'id'>) => void;
@@ -46,6 +47,7 @@ interface NexaState {
   addCardToDeck: (deckId: string, front: string, back: string) => void;
   rateCard: (deckId: string, cardId: string, rating: 'again' | 'hard' | 'easy') => void;
   recordStudySession: (cardsStudied: number) => void;
+  setCustomApiKey: (key: string) => void;
   getDueCards: (deckId: string) => Card[];
   getTotalDueCards: () => number;
   getWeeklyActivity: () => number[];
@@ -214,6 +216,11 @@ export const useNexaStore = create<NexaState>()(
       lastStudiedDate: getToday(),
       totalMastered: 0,
       studySessions: [{ date: getToday(), cardsStudied: 0 }],
+      customApiKey: '',
+
+      setCustomApiKey: (key) => {
+        set({ customApiKey: key });
+      },
 
       addDeck: (deckData) => {
         const newDeck: Deck = {

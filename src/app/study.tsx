@@ -31,7 +31,7 @@ const NEXA_TIPS = [
   "Nexa says: Trust the process, Scholar. Your brain is building connections.",
 ];
 
-const owlImage = require('@/assets/Gemini_Generated_Image_z7k15sz7k15sz7k1-clean-removebg-preview.png');
+const owlImage = require('../../assets/Nexa.png');
 
 function CelebrationModal({ onClose }: { onClose: () => void }) {
   const bounceAnim = useRef(new Animated.Value(0)).current;

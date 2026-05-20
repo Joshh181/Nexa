@@ -6,7 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Pressable,
@@ -178,6 +178,34 @@ export default function HomeScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(12)).current;
 
+  // Custom Interactive FAB Menu States
+  const [isFabOpen, setIsFabOpen] = useState(false);
+  const [isSubMenuOpen, setIsSubMenuOpen] = useState(false);
+  const [isStudyGuideSubMenuOpen, setIsStudyGuideSubMenuOpen] = useState(false);
+  const menuAnim = useRef(new Animated.Value(0)).current;
+
+  const toggleFabMenu = () => {
+    if (isFabOpen) {
+      Animated.timing(menuAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        setIsFabOpen(false);
+        setIsSubMenuOpen(false);
+        setIsStudyGuideSubMenuOpen(false);
+      });
+    } else {
+      setIsFabOpen(true);
+      Animated.spring(menuAnim, {
+        toValue: 1,
+        tension: 55,
+        friction: 8,
+        useNativeDriver: true,
+      }).start();
+    }
+  };
+
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -222,7 +250,7 @@ export default function HomeScreen() {
           {/* Owl Banner CTA */}
           <View style={styles.bannerCard}>
             <Image
-              source={require('@/assets/Gemini_Generated_Image_z7k15sz7k15sz7k1-clean-removebg-preview.png')}
+              source={require('../../assets/Nexa.png')}
               style={styles.bannerOwl}
               contentFit="contain"
             />
@@ -297,7 +325,7 @@ export default function HomeScreen() {
           {decks.length === 0 && (
             <View style={styles.emptyState}>
               <Image
-                source={require('@/assets/Gemini_Generated_Image_z7k15sz7k15sz7k1-clean-removebg-preview.png')}
+                source={require('../../assets/Nexa.png')}
                 style={styles.emptyOwl}
                 contentFit="contain"
               />
@@ -311,13 +339,189 @@ export default function HomeScreen() {
         </Animated.View>
       </ScrollView>
 
-      {/* Floating Action Button */}
-      <Pressable
-        style={styles.fab}
-        onPress={() => router.push('/create-deck' as any)}
+      {/* Interactive FAB Menu Overlay */}
+      {isFabOpen && (
+        <>
+          {/* Transparent Backdrop */}
+          <Pressable style={styles.backdrop} onPress={toggleFabMenu}>
+            <Animated.View
+              style={[
+                styles.backdropBackground,
+                {
+                  opacity: menuAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 0.4],
+                  }),
+                },
+              ]}
+            />
+          </Pressable>
+
+          {/* Animated Menu Card */}
+          <Animated.View
+            style={[
+              styles.menuCard,
+              {
+                opacity: menuAnim,
+                transform: [
+                  {
+                    translateY: menuAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [60, 0],
+                    }),
+                  },
+                  {
+                    scale: menuAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.9, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.menuHeader}>
+              <Text style={styles.menuTitle}>Nexa Study Hub</Text>
+              <Text style={styles.menuSubtitle}>What would you like to create?</Text>
+            </View>
+
+            {/* Option 1: Flashcard Set */}
+            <Pressable
+              style={styles.menuOption}
+              onPress={() => setIsSubMenuOpen(!isSubMenuOpen)}
+            >
+              <View style={[styles.menuOptionIconBox, { backgroundColor: '#f0eaff' }]}>
+                <Ionicons name="layers" size={20} color={Colors.primary} />
+              </View>
+              <View style={styles.menuOptionTextCol}>
+                <Text style={styles.menuOptionTitle}>Flashcard Set</Text>
+                <Text style={styles.menuOptionDesc}>Manual creation or AI import from document</Text>
+              </View>
+              <Ionicons
+                name={isSubMenuOpen ? 'chevron-down' : 'chevron-forward'}
+                size={16}
+                color={Colors.mutedText}
+              />
+            </Pressable>
+
+            {/* Flashcard Sub-options */}
+            {isSubMenuOpen && (
+              <View style={styles.subMenu}>
+                <Pressable
+                  style={styles.subMenuItem}
+                  onPress={() => {
+                    toggleFabMenu();
+                    router.push('/create-deck' as any);
+                  }}
+                >
+                  <Ionicons name="create-outline" size={16} color={Colors.primary} />
+                  <Text style={styles.subMenuItemText}>Create Manually</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.subMenuItem}
+                  onPress={() => {
+                    toggleFabMenu();
+                    router.push('/import-deck' as any);
+                  }}
+                >
+                  <Ionicons name="sparkles-outline" size={16} color={Colors.primary} />
+                  <Text style={styles.subMenuItemText}>Import with AI (PDF/PPT)</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Option 2: AI Study Guide */}
+            <Pressable
+              style={styles.menuOption}
+              onPress={() => setIsStudyGuideSubMenuOpen(!isStudyGuideSubMenuOpen)}
+            >
+              <View style={[styles.menuOptionIconBox, { backgroundColor: '#eef8ff' }]}>
+                <Ionicons name="book" size={20} color="#3598db" />
+              </View>
+              <View style={styles.menuOptionTextCol}>
+                <Text style={styles.menuOptionTitle}>Study Guide</Text>
+                <Text style={styles.menuOptionDesc}>Generate complete textbook notes & summaries</Text>
+              </View>
+              <Ionicons
+                name={isStudyGuideSubMenuOpen ? 'chevron-down' : 'chevron-forward'}
+                size={16}
+                color={Colors.mutedText}
+              />
+            </Pressable>
+
+            {/* Study Guide Sub-options */}
+            {isStudyGuideSubMenuOpen && (
+              <View style={styles.subMenu}>
+                <Pressable
+                  style={styles.subMenuItem}
+                  onPress={() => {
+                    toggleFabMenu();
+                    router.push({
+                      pathname: '/study-guide' as any,
+                      params: { mode: 'deck' },
+                    });
+                  }}
+                >
+                  <Ionicons name="albums-outline" size={16} color="#3598db" />
+                  <Text style={styles.subMenuItemText}>Summarize Deck</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.subMenuItem}
+                  onPress={() => {
+                    toggleFabMenu();
+                    router.push({
+                      pathname: '/study-guide' as any,
+                      params: { mode: 'document' },
+                    });
+                  }}
+                >
+                  <Ionicons name="document-text-outline" size={16} color="#3598db" />
+                  <Text style={styles.subMenuItemText}>Upload Document</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Option 3: Practice Test */}
+            <Pressable
+              style={styles.menuOption}
+              onPress={() => {
+                toggleFabMenu();
+                router.push('/practice-test' as any);
+              }}
+            >
+              <View style={[styles.menuOptionIconBox, { backgroundColor: '#fff7eb' }]}>
+                <Ionicons name="ribbon" size={20} color="#e67e22" />
+              </View>
+              <View style={styles.menuOptionTextCol}>
+                <Text style={styles.menuOptionTitle}>Practice Test</Text>
+                <Text style={styles.menuOptionDesc}>Quiz yourself with customized exams</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} />
+            </Pressable>
+          </Animated.View>
+        </>
+      )}
+
+      {/* Main Floating Action Button */}
+      <Animated.View
+        style={[
+          styles.fabContainer,
+          {
+            transform: [
+              {
+                rotate: menuAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0deg', '135deg'],
+                }),
+              },
+            ],
+          },
+        ]}
       >
-        <Ionicons name="add" size={28} color={Colors.white} />
-      </Pressable>
+        <Pressable style={styles.fab} onPress={toggleFabMenu}>
+          <Ionicons name="add" size={28} color={Colors.white} />
+        </Pressable>
+      </Animated.View>
     </View>
   );
 }
@@ -503,11 +707,112 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // FAB
-  fab: {
+  // Interactive FAB Overlay Styles
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 99,
+  },
+  backdropBackground: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  menuCard: {
+    position: 'absolute',
+    bottom: 165,
+    right: Spacing.xxl,
+    left: Spacing.xxl,
+    backgroundColor: Colors.cardSurface,
+    borderRadius: BorderRadius.card,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    padding: Spacing.xl,
+    zIndex: 100,
+    elevation: 10,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+  },
+  menuHeader: {
+    marginBottom: Spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+    paddingBottom: Spacing.md,
+  },
+  menuTitle: {
+    fontFamily: Fonts.display,
+    fontSize: 16,
+    color: Colors.headingText,
+  },
+  menuSubtitle: {
+    fontFamily: Fonts.body,
+    fontSize: 11,
+    color: Colors.mutedText,
+    marginTop: 2,
+  },
+  menuOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.md,
+    gap: Spacing.md,
+  },
+  menuOptionIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: BorderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuOptionTextCol: {
+    flex: 1,
+  },
+  menuOptionTitle: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 13,
+    color: Colors.headingText,
+  },
+  menuOptionDesc: {
+    fontFamily: Fonts.body,
+    fontSize: 10,
+    color: Colors.mutedText,
+    marginTop: 1,
+  },
+  subMenu: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    marginTop: -Spacing.xs,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  subMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.md,
+    gap: Spacing.md,
+  },
+  subMenuItemText: {
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 12,
+    color: Colors.headingText,
+  },
+
+  // FAB Base Container
+  fabContainer: {
     position: 'absolute',
     bottom: 90,
     right: Spacing.xxl,
+    width: 56,
+    height: 56,
+    zIndex: 101,
+  },
+  fab: {
     width: 56,
     height: 56,
     borderRadius: 28,
