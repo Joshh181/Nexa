@@ -50,7 +50,104 @@ export const Colors = {
   // Celebration
   white: '#ffffff',
   black: '#000000',
+
+  // Template compatibility aliases
+  text: '#3d2b8a',             // headingText
+  textSecondary: '#b8a8e0',    // mutedText
+  backgroundSelected: '#ede8ff', // accentBadgeBg
+  backgroundElement: '#ffffff',  // white
+
+  light: {
+    background: '#f5f0ff',
+    cardSurface: '#ffffff',
+    cardBorder: '#e0d6f8',
+    primary: '#7c5cbf',
+    primaryDark: '#6a4daa',
+    headingText: '#3d2b8a',
+    mutedText: '#b8a8e0',
+    accentBadgeBg: '#ede8ff',
+    accentBadgeText: '#7c5cbf',
+    urgentPillBg: '#ffe8f5',
+    urgentPillText: '#c046a0',
+    againBg: '#fff0f5',
+    againBorder: '#f0a0c0',
+    againText: '#c04070',
+    hardBg: '#fff8ee',
+    hardBorder: '#f0c070',
+    hardText: '#9a6010',
+    easyBg: '#eef8f0',
+    easyBorder: '#80d0a0',
+    easyText: '#1a7a40',
+    purpleDeckBg: '#ede8ff',
+    pinkDeckBg: '#ffe8f5',
+    blueDeckBg: '#e8f0ff',
+    greenDeckBg: '#e8f8ee',
+    tabBarBg: '#f5f0ff',
+    tabBarBorder: '#e0d6f8',
+    tabActive: '#7c5cbf',
+    tabInactive: '#c8b8f0',
+    divider: '#e8e0f8',
+    tipText: '#9984d4',
+    subtitleText: '#d4c0f8',
+    answerText: '#5d4a9a',
+    heatmap0: '#e0d6f8',
+    heatmap1: '#c8b0f0',
+    heatmap2: '#a880d8',
+    heatmap3: '#7c5cbf',
+    white: '#ffffff',
+    black: '#000000',
+    text: '#3d2b8a',
+    textSecondary: '#b8a8e0',
+    backgroundSelected: '#ede8ff',
+    backgroundElement: '#ffffff',
+  },
+  dark: {
+    background: '#f5f0ff',
+    cardSurface: '#ffffff',
+    cardBorder: '#e0d6f8',
+    primary: '#7c5cbf',
+    primaryDark: '#6a4daa',
+    headingText: '#3d2b8a',
+    mutedText: '#b8a8e0',
+    accentBadgeBg: '#ede8ff',
+    accentBadgeText: '#7c5cbf',
+    urgentPillBg: '#ffe8f5',
+    urgentPillText: '#c046a0',
+    againBg: '#fff0f5',
+    againBorder: '#f0a0c0',
+    againText: '#c04070',
+    hardBg: '#fff8ee',
+    hardBorder: '#f0c070',
+    hardText: '#9a6010',
+    easyBg: '#eef8f0',
+    easyBorder: '#80d0a0',
+    easyText: '#1a7a40',
+    purpleDeckBg: '#ede8ff',
+    pinkDeckBg: '#ffe8f5',
+    blueDeckBg: '#e8f0ff',
+    greenDeckBg: '#e8f8ee',
+    tabBarBg: '#f5f0ff',
+    tabBarBorder: '#e0d6f8',
+    tabActive: '#7c5cbf',
+    tabInactive: '#c8b8f0',
+    divider: '#e8e0f8',
+    tipText: '#9984d4',
+    subtitleText: '#d4c0f8',
+    answerText: '#5d4a9a',
+    heatmap0: '#e0d6f8',
+    heatmap1: '#c8b0f0',
+    heatmap2: '#a880d8',
+    heatmap3: '#7c5cbf',
+    white: '#ffffff',
+    black: '#000000',
+    text: '#3d2b8a',
+    textSecondary: '#b8a8e0',
+    backgroundSelected: '#ede8ff',
+    backgroundElement: '#ffffff',
+  }
 } as const;
+
+export type ThemeColor = keyof typeof Colors.light;
 
 export const Fonts = {
   display: Platform.select({
@@ -77,6 +174,10 @@ export const Fonts = {
     web: "'Nunito', sans-serif",
     default: 'Nunito_800ExtraBold',
   }),
+  mono: Platform.select({
+    web: "Courier New, monospace",
+    default: "Courier",
+  }),
 } as const;
 
 export const Spacing = {
@@ -90,6 +191,13 @@ export const Spacing = {
   huge: 32,
   massive: 48,
   giant: 64,
+  // Template compatibility aliases
+  half: 4,
+  one: 8,
+  two: 12,
+  three: 16,
+  four: 20,
+  five: 24,
 } as const;
 
 export const BorderRadius = {
@@ -103,3 +211,5 @@ export const BorderRadius = {
   round: 24,
   full: 28,
 } as const;
+
+export const MaxContentWidth = 1100;

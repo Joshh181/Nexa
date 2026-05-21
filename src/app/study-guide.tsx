@@ -382,9 +382,9 @@ export default function StudyGuideScreen() {
                 <View style={styles.mascotBannerLeft}>
                   <Image source={owlImage} style={styles.mascotBannerOwl} />
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.mascotBannerTitle}>Scholar Nexa's Codex</Text>
+                    <Text style={styles.mascotBannerTitle}>Scholar Nexa&apos;s Codex</Text>
                     <Text style={styles.mascotBannerSub}>
-                      "Wisdom begins with wonder. Review these compiled modules to master your subject!"
+                      &quot;Wisdom begins with wonder. Review these compiled modules to master your subject!&quot;
                     </Text>
                   </View>
                 </View>
@@ -394,7 +394,7 @@ export default function StudyGuideScreen() {
               {currentDeck.keyTerms && currentDeck.keyTerms.length > 0 && (
                 <View style={styles.quickSection}>
                   <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.viewerSectionTitle}>📜 The Scholar's Lexicon</Text>
+                    <Text style={styles.viewerSectionTitle}>📜 The Scholar&apos;s Lexicon</Text>
                     <View style={styles.badgeLabelContainer}>
                       <Text style={styles.badgeLabelText}>{currentDeck.keyTerms.length} Terms</Text>
                     </View>
@@ -507,7 +507,7 @@ export default function StudyGuideScreen() {
               {/* Scholar's Inquiries (Essay Questions) */}
               {currentDeck.essayQuestions && currentDeck.essayQuestions.length > 0 && (
                 <View style={styles.essayBlock}>
-                  <Text style={styles.viewerSectionTitle}>🧭 Scholar's Inquiries</Text>
+                  <Text style={styles.viewerSectionTitle}>🧭 Scholar&apos;s Inquiries</Text>
                   <View style={styles.parchmentScroll}>
                     {currentDeck.essayQuestions.map((q, idx) => (
                       <View key={idx} style={styles.parchmentQuestionItem}>

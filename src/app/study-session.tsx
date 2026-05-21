@@ -50,7 +50,7 @@ function CelebrationModal({ onClose }: { onClose: () => void }) {
       <Animated.View style={[styles.celebCard, { transform: [{ scale: bounceAnim }] }]}>
         <Image source={owlImage} style={styles.celebOwl} contentFit="contain" />
         <Text style={styles.celebTitle}>Splendid, Scholar!</Text>
-        <Text style={styles.celebSub}>Nexa is proud of you. You've completed this session!</Text>
+        <Text style={styles.celebSub}>Nexa is proud of you. You&apos;ve completed this session!</Text>
         <Pressable style={styles.celebBtn} onPress={onClose}>
           <Text style={styles.celebBtnTxt}>Continue</Text>
         </Pressable>
