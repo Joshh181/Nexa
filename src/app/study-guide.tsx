@@ -257,7 +257,8 @@ export default function StudyGuideScreen() {
       } else {
         // Create a completely new Deck!
         const newDeckId = 'deck-' + Date.now();
-        addDeck({
+        const generatedDeckId = addDeck({
+          id: newDeckId,
           name: title,
           icon: mode === 'image' ? '📷' : mode === 'document' ? '📄' : '✍️',
           colorTag: 'purple',
@@ -267,7 +268,9 @@ export default function StudyGuideScreen() {
             back: c.back,
             interval: 1,
             nextReview: todayStr,
-            easeFactor: 2.5
+            easeFactor: 2.5,
+            correctCount: 0,
+            incorrectCount: 0,
           })),
           keyTerms: payload.keyTerms,
           keyConcepts: payload.keyConcepts,
@@ -279,7 +282,7 @@ export default function StudyGuideScreen() {
         
         // Wait a tiny bit for Zustand write, then navigate viewer
         setTimeout(() => {
-          setActiveDeckId(newDeckId);
+          setActiveDeckId(generatedDeckId);
         }, 100);
       }
     } catch (e: any) {

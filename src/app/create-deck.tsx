@@ -19,9 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors, Fonts, Spacing, BorderRadius } from '@/constants/theme';
-import { useNexaStore, type ColorTag } from '@/store/useNexaStore';
-
-const EMOJI_OPTIONS = ['📚', '🔬', '📖', '🧮', '🌍', '🎨', '💡', '🏛️', '🦉', '⚡'];
+import { useNexaStore, type ColorTag, type DeckSubject, DECK_SUBJECTS } from '@/store/useNexaStore';
 
 const COLOR_OPTIONS: { tag: ColorTag; color: string; label: string }[] = [
   { tag: 'purple', color: Colors.purpleDeckBg, label: 'Purple' },
@@ -41,6 +39,7 @@ export default function CreateDeckScreen() {
   const [deckName, setDeckName] = useState('');
   const selectedIcon = '';
   const [selectedColor, setSelectedColor] = useState<ColorTag>('purple');
+  const [selectedSubject, setSelectedSubject] = useState<DeckSubject | undefined>(undefined);
   const [cardFront, setCardFront] = useState('');
   const [cardBack, setCardBack] = useState('');
   const [tempCards, setTempCards] = useState<TempCard[]>([]);
@@ -64,6 +63,7 @@ export default function CreateDeckScreen() {
       name: deckName.trim(),
       icon: selectedIcon,
       colorTag: selectedColor,
+      subject: selectedSubject,
       cards: [],
     });
     // Find the newly created deck (last one)
@@ -135,6 +135,26 @@ export default function CreateDeckScreen() {
               {selectedColor === opt.tag && (
                 <Ionicons name="checkmark" size={14} color={Colors.primary} />
               )}
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Subject Tag */}
+        <Text style={styles.fieldLabel}>SUBJECT (OPTIONAL)</Text>
+        <View style={styles.subjectRow}>
+          {DECK_SUBJECTS.map((sub) => (
+            <Pressable
+              key={sub}
+              style={[
+                styles.subjectChip,
+                selectedSubject === sub && styles.subjectChipActive,
+              ]}
+              onPress={() => setSelectedSubject(selectedSubject === sub ? undefined : sub)}
+            >
+              <Text style={[
+                styles.subjectChipText,
+                selectedSubject === sub && styles.subjectChipTextActive,
+              ]}>{sub}</Text>
             </Pressable>
           ))}
         </View>
@@ -234,4 +254,14 @@ const styles = StyleSheet.create({
 
   saveBtn: { backgroundColor: Colors.primary, borderRadius: BorderRadius.xxl, height: 52, justifyContent: 'center', alignItems: 'center', marginTop: Spacing.xxxl },
   saveBtnTxt: { fontFamily: Fonts.display, fontSize: 16, color: Colors.white },
+
+  subjectRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
+  subjectChip: {
+    paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.pill, backgroundColor: Colors.cardSurface,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+  },
+  subjectChipActive: { backgroundColor: Colors.accentBadgeBg, borderColor: Colors.primary },
+  subjectChipText: { fontFamily: Fonts.bodySemiBold, fontSize: 12, color: Colors.mutedText },
+  subjectChipTextActive: { color: Colors.primary },
 });

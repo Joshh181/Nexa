@@ -28,11 +28,11 @@ import { WebView } from 'react-native-webview';
 
 import { Colors, Fonts, Spacing, BorderRadius } from '@/constants/theme';
 import {
-  generateFlashcardsFromFile,
-  generateFlashcardsFromText,
-  generateFlashcardsFromImage,
+  generateStudyGuide,
+  generateStudyGuideFromImage,
   isAIConfigured,
-  type GeneratedCard
+  type GeneratedCard,
+  type StudyGuidePayload
 } from '@/services/gemini';
 import { useNexaStore, type ColorTag } from '@/store/useNexaStore';
 
@@ -71,6 +71,7 @@ export default function ImportDeckScreen() {
   // UI state
   const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
   const [generatedCards, setGeneratedCards] = useState<GeneratedCard[]>([]);
+  const [generatedPayload, setGeneratedPayload] = useState<StudyGuidePayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -204,21 +205,23 @@ export default function ImportDeckScreen() {
     setStep('generating');
 
     try {
-      let cards: GeneratedCard[] = [];
+      let payload: StudyGuidePayload;
       const count = parseInt(cardCount) || 10;
 
       if (sourceType === 'file') {
-        cards = await generateFlashcardsFromFile(fileBase64, fileMime, deckName, count);
+        const sourceMaterial = fileBase64.substring(0, 100000);
+        payload = await generateStudyGuide(sourceMaterial, deckName, count);
       } else if (sourceType === 'image') {
-        cards = await generateFlashcardsFromImage(fileBase64, 'image/jpeg', count);
+        payload = await generateStudyGuideFromImage(fileBase64, 'image/jpeg', deckName, count);
       } else {
-        cards = await generateFlashcardsFromText(pastedText, deckName, count);
+        payload = await generateStudyGuide(pastedText, deckName, count);
       }
 
-      if (cards.length === 0) {
-        throw new Error('Failed to generate study cards.');
+      if (!payload || !payload.flashcards || payload.flashcards.length === 0) {
+        throw new Error('Failed to generate study guide.');
       }
-      setGeneratedCards(cards);
+      setGeneratedPayload(payload);
+      setGeneratedCards(payload.flashcards);
       setStep('review');
     } catch (e: any) {
       setError(e.message || 'Generation failed. Try again.');
@@ -232,7 +235,9 @@ export default function ImportDeckScreen() {
       Alert.alert('Error', 'Please enter a valid deck name.');
       return;
     }
+    const newDeckId = 'deck-' + Date.now();
     addDeck({
+      id: newDeckId,
       name: deckName.trim(),
       icon: selectedIcon,
       colorTag: selectedColor,
@@ -243,13 +248,21 @@ export default function ImportDeckScreen() {
         interval: 1,
         easeFactor: 2.5,
         nextReview: new Date().toISOString().split('T')[0],
+        correctCount: 0,
+        incorrectCount: 0,
       })),
+      keyTerms: generatedPayload?.keyTerms || [],
+      keyConcepts: generatedPayload?.keyConcepts || [],
+      keyTables: generatedPayload?.keyTables || [],
+      essayQuestions: generatedPayload?.essayQuestions || [],
+      createdDate: new Date().toLocaleDateString('en-GB'), // DD/MM/YYYY
+      lastStudiedDate: new Date().toISOString().split('T')[0],
     });
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/' as any);
-    }
+
+    // Wait a tiny bit for Zustand write, then navigate to the Study Guide screen
+    setTimeout(() => {
+      router.replace({ pathname: '/study-guide' as any, params: { deckId: newDeckId } });
+    }, 100);
   };
 
   const handleEditCard = (idx: number, field: 'front' | 'back', val: string) => {
@@ -483,9 +496,9 @@ export default function ImportDeckScreen() {
         <View style={styles.loadingC}>
           <Image source={owlImage} style={styles.loadingOwl} contentFit="contain" />
           <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: Spacing.xl }} />
-          <Text style={styles.loadingTitle}>Transcribing Materials...</Text>
+          <Text style={styles.loadingTitle}>Compiling Study Guide...</Text>
           <Text style={styles.loadingSub}>
-            Nexa is analyzing terms and forging high-retention flashcards from your resource.
+            Scholar Nexa is indexing your materials, formulating high-quality key terms, custom summary tables, and flashcards.
           </Text>
         </View>
       </View>

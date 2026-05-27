@@ -10,6 +10,9 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 // ─── Types ───────────────────────────────────────────────
 
 export type ColorTag = 'purple' | 'pink' | 'blue';
+export type DeckSubject = 'Math' | 'Science' | 'Languages' | 'History' | 'Arts' | 'Other';
+
+export const DECK_SUBJECTS: DeckSubject[] = ['Math', 'Science', 'Languages', 'History', 'Arts', 'Other'];
 
 export interface Card {
   id: string;
@@ -18,6 +21,8 @@ export interface Card {
   interval: number;       // days until next review
   nextReview: string;     // ISO date string
   easeFactor: number;     // SM-2 ease factor
+  correctCount: number;   // times rated easy/hard
+  incorrectCount: number; // times rated again
 }
 
 export interface KeyTerm {
@@ -36,6 +41,13 @@ export interface KeyTable {
   rows: string[][];
 }
 
+export interface PracticeQuestion {
+  question: string;
+  type: 'mc' | 'tf' | 'fib';
+  options?: string[];
+  answer: string;
+}
+
 export interface Deck {
   id: string;
   name: string;
@@ -46,8 +58,15 @@ export interface Deck {
   keyTerms?: KeyTerm[];
   keyConcepts?: KeyConcept[];
   keyTables?: KeyTable[];
+  practiceQuestions?: PracticeQuestion[];
   createdDate?: string;      // YYYY-MM-DD
   lastStudiedDate?: string;  // YYYY-MM-DD
+  subject?: DeckSubject;     // folder/tag
+}
+
+interface PomodoroSession {
+  date: string;
+  minutes: number;
 }
 
 interface StudySession {
@@ -61,19 +80,28 @@ interface NexaState {
   lastStudiedDate: string;
   totalMastered: number;
   studySessions: StudySession[];
+  pomodoroSessions: PomodoroSession[];
+  totalStudyMinutes: number;
+  hasCompletedOnboarding: boolean;
 
   // Actions
-  addDeck: (deck: Omit<Deck, 'id'>) => void;
+  addDeck: (deck: Omit<Deck, 'id'> & { id?: string }) => string;
   updateDeck: (deckId: string, updates: Partial<Deck>) => void;
   deleteDeck: (deckId: string) => void;
   addCardToDeck: (deckId: string, front: string, back: string) => void;
   rateCard: (deckId: string, cardId: string, rating: 'again' | 'hard' | 'easy') => void;
   recordStudySession: (cardsStudied: number) => void;
+  recordPomodoroSession: (minutes: number) => void;
+  completeOnboarding: () => void;
   getDueCards: (deckId: string) => Card[];
   getTotalDueCards: () => number;
   getWeeklyActivity: () => number[];
   getStreakCalendar: () => boolean[];
   getDeckMastery: () => { name: string; mastery: number }[];
+  getCardDifficulty: (deckId: string) => { card: Card; difficulty: 'easy' | 'moderate' | 'hard' | 'new' }[];
+  getSubjects: () => string[];
+  getDecksBySubject: (subject: string) => Deck[];
+  getWeeklyStudyMinutes: () => number[];
 }
 
 function generateId(): string {
@@ -118,6 +146,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
       {
         id: 'card-w2',
@@ -126,6 +156,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
       {
         id: 'card-w3',
@@ -134,6 +166,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
     ],
   },
@@ -150,6 +184,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
       {
         id: 'card-s2',
@@ -158,6 +194,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
       {
         id: 'card-s3',
@@ -166,6 +204,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
       {
         id: 'card-s4',
@@ -174,6 +214,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
       {
         id: 'card-s5',
@@ -182,6 +224,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
     ],
   },
@@ -198,6 +242,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
       {
         id: 'card-v2',
@@ -206,6 +252,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
       {
         id: 'card-v3',
@@ -214,6 +262,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
       {
         id: 'card-v4',
@@ -222,6 +272,8 @@ const defaultDecks: Deck[] = [
         interval: 1,
         nextReview: getToday(),
         easeFactor: 2.5,
+        correctCount: 0,
+        incorrectCount: 0,
       },
     ],
   },
@@ -237,14 +289,19 @@ export const useNexaStore = create<NexaState>()(
       lastStudiedDate: getToday(),
       totalMastered: 0,
       studySessions: [{ date: getToday(), cardsStudied: 0 }],
+      pomodoroSessions: [],
+      totalStudyMinutes: 0,
+      hasCompletedOnboarding: false,
 
 
       addDeck: (deckData) => {
+        const id = deckData.id || generateId();
         const newDeck: Deck = {
           ...deckData,
-          id: generateId(),
+          id,
         };
         set((state) => ({ decks: [...state.decks, newDeck] }));
+        return id;
       },
 
       updateDeck: (deckId, updates) => {
@@ -269,6 +326,8 @@ export const useNexaStore = create<NexaState>()(
           interval: 1,
           nextReview: getToday(),
           easeFactor: 2.5,
+          correctCount: 0,
+          incorrectCount: 0,
         };
         set((state) => ({
           decks: state.decks.map((d) =>
@@ -285,18 +344,23 @@ export const useNexaStore = create<NexaState>()(
             const cards = deck.cards.map((card) => {
               if (card.id !== cardId) return card;
               let { interval, easeFactor } = card;
+              let correctCount = card.correctCount || 0;
+              let incorrectCount = card.incorrectCount || 0;
 
               switch (rating) {
                 case 'again':
                   interval = 1;
+                  incorrectCount++;
                   break;
                 case 'hard':
                   interval = 3;
                   easeFactor = Math.max(1.3, easeFactor - 0.1);
+                  correctCount++;
                   break;
                 case 'easy':
                   interval = Math.max(7, Math.round(interval * easeFactor));
                   easeFactor += 0.1;
+                  correctCount++;
                   break;
               }
 
@@ -304,6 +368,8 @@ export const useNexaStore = create<NexaState>()(
                 ...card,
                 interval,
                 easeFactor,
+                correctCount,
+                incorrectCount,
                 nextReview: addDaysToDate(today, interval),
               };
             });
@@ -410,6 +476,70 @@ export const useNexaStore = create<NexaState>()(
             mastery: Math.round((mastered / deck.cards.length) * 100),
           };
         });
+      },
+
+      recordPomodoroSession: (minutes) => {
+        const today = getToday();
+        set((state) => {
+          const sessions = [...state.pomodoroSessions];
+          const existingIdx = sessions.findIndex((s) => s.date === today);
+          if (existingIdx >= 0) {
+            sessions[existingIdx] = {
+              ...sessions[existingIdx],
+              minutes: sessions[existingIdx].minutes + minutes,
+            };
+          } else {
+            sessions.push({ date: today, minutes });
+          }
+          const cutoff = getDaysAgo(35);
+          const filtered = sessions.filter((s) => s.date >= cutoff);
+          return {
+            pomodoroSessions: filtered,
+            totalStudyMinutes: state.totalStudyMinutes + minutes,
+          };
+        });
+      },
+
+      completeOnboarding: () => {
+        set({ hasCompletedOnboarding: true });
+      },
+
+      getCardDifficulty: (deckId) => {
+        const deck = get().decks.find((d) => d.id === deckId);
+        if (!deck) return [];
+        return deck.cards.map((card) => {
+          const correct = card.correctCount || 0;
+          const incorrect = card.incorrectCount || 0;
+          const total = correct + incorrect;
+          if (total === 0) return { card, difficulty: 'new' as const };
+          const ratio = correct / total;
+          if (ratio >= 0.7) return { card, difficulty: 'easy' as const };
+          if (ratio >= 0.4) return { card, difficulty: 'moderate' as const };
+          return { card, difficulty: 'hard' as const };
+        });
+      },
+
+      getSubjects: () => {
+        const subjects = new Set<string>();
+        for (const deck of get().decks) {
+          if (deck.subject) subjects.add(deck.subject);
+        }
+        return Array.from(subjects);
+      },
+
+      getDecksBySubject: (subject) => {
+        return get().decks.filter((d) => d.subject === subject);
+      },
+
+      getWeeklyStudyMinutes: () => {
+        const sessions = get().pomodoroSessions;
+        const result: number[] = [];
+        for (let i = 6; i >= 0; i--) {
+          const date = getDaysAgo(i);
+          const session = sessions.find((s) => s.date === date);
+          result.push(session?.minutes ?? 0);
+        }
+        return result;
       },
     }),
     {

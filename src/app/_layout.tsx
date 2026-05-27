@@ -3,6 +3,7 @@
  * Loads custom fonts and sets up the tab navigator
  */
 
+import { Colors, Fonts } from '@/constants/theme';
 import {
   Nunito_400Regular,
   Nunito_600SemiBold,
@@ -14,12 +15,13 @@ import {
   PlayfairDisplay_700Bold,
 } from '@expo-google-fonts/playfair-display';
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
 import { useFonts } from 'expo-font';
+import { router, Tabs } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { Colors, Fonts } from '@/constants/theme';
+import React, { useEffect } from 'react';
+
+import { useNexaStore } from '@/store/useNexaStore';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -33,11 +35,16 @@ export default function RootLayout() {
     PlayfairDisplay_700Bold,
   });
 
+  const { hasCompletedOnboarding } = useNexaStore();
+
   useEffect(() => {
     if (fontsLoaded) {
       SplashScreen.hideAsync();
+      if (!hasCompletedOnboarding) {
+        setTimeout(() => router.replace('/onboarding' as any), 100);
+      }
     }
-  }, [fontsLoaded]);
+  }, [fontsLoaded, hasCompletedOnboarding]);
 
   if (!fontsLoaded) {
     return null;
@@ -53,8 +60,8 @@ export default function RootLayout() {
             backgroundColor: Colors.tabBarBg,
             borderTopWidth: 1,
             borderTopColor: Colors.tabBarBorder,
-            height: 65,
-            paddingBottom: 8,
+            height: 75,
+            paddingBottom: 25,
             paddingTop: 6,
             elevation: 0,
             shadowOpacity: 0,
@@ -135,6 +142,28 @@ export default function RootLayout() {
         />
         <Tabs.Screen
           name="study-session"
+          options={{
+            href: null,
+            tabBarStyle: { display: 'none' },
+          }}
+        />
+        <Tabs.Screen
+          name="ai-tutor"
+          options={{
+            href: null,
+            tabBarStyle: { display: 'none' },
+          }}
+        />
+        <Tabs.Screen
+          name="pomodoro"
+          options={{
+            href: null,
+            tabBarStyle: { display: 'none' },
+          }}
+        />
+
+        <Tabs.Screen
+          name="onboarding"
           options={{
             href: null,
             tabBarStyle: { display: 'none' },

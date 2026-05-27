@@ -5,8 +5,9 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -23,8 +24,76 @@ import { useNexaStore } from '@/store/useNexaStore';
 
 export default function StudyScreen() {
   const insets = useSafeAreaInsets();
-  const { decks, deleteDeck, getTotalDueCards, getDueCards } = useNexaStore();
+  const { decks, deleteDeck, getTotalDueCards, getDueCards, getCardDifficulty } = useNexaStore();
   const totalDue = getTotalDueCards();
+
+  const [selectedSubject, setSelectedSubject] = useState<string>('All');
+
+  const subjectCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: decks.length };
+    for (const sub of ['Math', 'Science', 'Languages', 'History', 'Arts', 'Other']) {
+      counts[sub] = decks.filter((d) => d.subject === sub).length;
+    }
+    return counts;
+  }, [decks]);
+
+  const filteredDecks = useMemo(() => {
+    if (selectedSubject === 'All') return decks;
+    return decks.filter((d) => d.subject === selectedSubject);
+  }, [decks, selectedSubject]);
+
+  const aiGuides = useMemo(() => filteredDecks.filter(
+    (d) => (d.keyTerms && d.keyTerms.length > 0) || (d.keyConcepts && d.keyConcepts.length > 0)
+  ), [filteredDecks]);
+
+  const standardDecks = useMemo(() => filteredDecks.filter((d) => !aiGuides.includes(d)), [filteredDecks, aiGuides]);
+
+  const activeStudiesCount = filteredDecks.length;
+  const activeAiGuidesCount = aiGuides.length;
+  const activeDueCount = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    let total = 0;
+    for (const deck of filteredDecks) {
+      for (const card of deck.cards) {
+        if (card.nextReview <= today) total++;
+      }
+    }
+    return total;
+  }, [filteredDecks]);
+
+  const renderDifficultyHeatmap = (deckId: string, mini: boolean = false) => {
+    const difficulties = getCardDifficulty(deckId);
+    if (difficulties.length === 0) return null;
+
+    return (
+      <View style={[styles.heatmapContainer, mini && styles.heatmapContainerMini]}>
+        <View style={styles.heatmapHeader}>
+          <Text style={styles.heatmapLabel}>Heatmap</Text>
+          <View style={styles.heatmapLegend}>
+            <View style={[styles.legendDot, { backgroundColor: Colors.heatmap0 }]} />
+            <View style={[styles.legendDot, { backgroundColor: Colors.againBorder }]} />
+            <View style={[styles.legendDot, { backgroundColor: Colors.hardBorder }]} />
+            <View style={[styles.legendDot, { backgroundColor: Colors.easyBorder }]} />
+          </View>
+        </View>
+        <View style={styles.heatmapGrid}>
+          {difficulties.map((diffItem) => {
+            let color: string = Colors.heatmap0;
+            if (diffItem.difficulty === 'easy') color = Colors.easyBorder;
+            else if (diffItem.difficulty === 'moderate') color = Colors.hardBorder;
+            else if (diffItem.difficulty === 'hard') color = Colors.againBorder;
+
+            return (
+              <View
+                key={diffItem.card.id}
+                style={[styles.heatmapSquare, mini && styles.heatmapSquareMini, { backgroundColor: color }]}
+              />
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
 
   // Create menu sheet animation
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -48,10 +117,7 @@ export default function StudyScreen() {
     }
   };
 
-  const aiGuides = decks.filter(
-    (d) => (d.keyTerms && d.keyTerms.length > 0) || (d.keyConcepts && d.keyConcepts.length > 0)
-  );
-  const standardDecks = decks.filter((d) => !aiGuides.includes(d));
+// Filter variables have been calculated using useMemo above
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -64,25 +130,72 @@ export default function StudyScreen() {
           </View>
         </View>
 
+        {/* Horizontal Subject Filter Tabs */}
+        <View style={styles.filterWrapper}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterScroll}
+          >
+            {['All', 'Math', 'Science', 'Languages', 'History', 'Arts', 'Other'].map((sub) => {
+              const count = subjectCounts[sub] || 0;
+              const isActive = selectedSubject === sub;
+              return (
+                <Pressable
+                  key={sub}
+                  style={[styles.filterTab, isActive && styles.filterTabActive]}
+                  onPress={() => setSelectedSubject(sub)}
+                >
+                  <Text style={[styles.filterTabText, isActive && styles.filterTabTextActive]}>
+                    {sub} <Text style={[styles.filterTabCount, isActive && styles.filterTabCountActive]}>({count})</Text>
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         {/* Quick stats capsule banner */}
         <View style={styles.quickStatsRow}>
           <View style={styles.quickStatCol}>
-            <Text style={styles.quickStatNum}>{decks.length}</Text>
+            <Text style={styles.quickStatNum}>{activeStudiesCount}</Text>
             <Text style={styles.quickStatLbl}>Active Studies</Text>
           </View>
           <View style={styles.quickStatDivider} />
           <View style={styles.quickStatCol}>
-            <Text style={styles.quickStatNum}>{aiGuides.length}</Text>
+            <Text style={styles.quickStatNum}>{activeAiGuidesCount}</Text>
             <Text style={styles.quickStatLbl}>AI Summaries</Text>
           </View>
           <View style={styles.quickStatDivider} />
           <View style={styles.quickStatCol}>
-            <Text style={[styles.quickStatNum, { color: totalDue > 0 ? Colors.primary : Colors.headingText }]}>
-              {totalDue}
+            <Text style={[styles.quickStatNum, { color: activeDueCount > 0 ? Colors.primary : Colors.headingText }]}>
+              {activeDueCount}
             </Text>
             <Text style={styles.quickStatLbl}>Due Reviews</Text>
           </View>
         </View>
+
+        {/* Dedicated Pomodoro Study Timer Banner */}
+        <Pressable
+          style={styles.pomodoroBanner}
+          onPress={() => router.push('/pomodoro' as any)}
+        >
+          <LinearGradient
+            colors={['#2e1a47', '#1c1030']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.pomodoroGradient}
+          >
+            <View style={styles.pomodoroBannerLeft}>
+              <Ionicons name="timer" size={22} color="#e8873a" />
+              <View>
+                <Text style={styles.pomodoroBannerTitle}>Pomodoro Focus Timer</Text>
+                <Text style={styles.pomodoroBannerSub}>Boost productivity with timed study & breaks</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#e8873a" />
+          </LinearGradient>
+        </Pressable>
 
         {/* Category 1: AI Study Guides (featured card grid layout) */}
         <Text style={styles.centerSectionTitle}>AI STUDY GUIDES & SUMMARIES</Text>
@@ -102,41 +215,44 @@ export default function StudyScreen() {
                 style={styles.aiGuidePremiumCard}
                 onPress={() => router.push({ pathname: '/study-guide' as any, params: { deckId: guide.id } })}
               >
-                <View style={styles.aiCardHeader}>
-                  <View style={[styles.aiEmojiCircle, { backgroundColor: '#f0eaff' }]}>
-                    <Ionicons name="book" size={14} color={Colors.primary} />
-                  </View>
-                  <Pressable
-                    style={styles.deletePremiumBtn}
-                    hitSlop={8}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      Alert.alert(
-                        'Delete Study Guide',
-                        `Delete "${guide.name}" permanently?`,
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Delete', style: 'destructive', onPress: () => deleteDeck(guide.id) }
-                        ]
-                      );
-                    }}
-                  >
-                    <Ionicons name="trash-outline" size={14} color="#c04070" />
-                  </Pressable>
-                </View>
-                <Text style={styles.aiCardName} numberOfLines={2}>{guide.name}</Text>
-
-                <View style={styles.aiCardStats}>
-                  <View style={styles.aiStatBadge}>
-                    <Ionicons name="layers" size={10} color={Colors.primary} />
-                    <Text style={styles.aiStatTxt}>{guide.cards.length} Cards</Text>
-                  </View>
-                  {guide.keyTerms && (
-                    <View style={[styles.aiStatBadge, { backgroundColor: '#eef8ff' }]}>
-                      <Ionicons name="book" size={10} color="#3598db" />
-                      <Text style={[styles.aiStatTxt, { color: '#3598db' }]}>{guide.keyTerms.length} Terms</Text>
+                <View style={{ flex: 1 }}>
+                  <View style={styles.aiCardHeader}>
+                    <View style={[styles.aiEmojiCircle, { backgroundColor: '#f0eaff' }]}>
+                      <Ionicons name="book" size={14} color={Colors.primary} />
                     </View>
-                  )}
+                    <Pressable
+                      style={styles.deletePremiumBtn}
+                      hitSlop={8}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        Alert.alert(
+                          'Delete Study Guide',
+                          `Delete "${guide.name}" permanently?`,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Delete', style: 'destructive', onPress: () => deleteDeck(guide.id) }
+                          ]
+                        );
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={14} color="#c04070" />
+                    </Pressable>
+                  </View>
+                  <Text style={styles.aiCardName} numberOfLines={2}>{guide.name}</Text>
+
+                  <View style={styles.aiCardStats}>
+                    <View style={styles.aiStatBadge}>
+                      <Ionicons name="layers" size={10} color={Colors.primary} />
+                      <Text style={styles.aiStatTxt}>{guide.cards.length} Cards</Text>
+                    </View>
+                    {guide.keyTerms && (
+                      <View style={[styles.aiStatBadge, { backgroundColor: '#eef8ff' }]}>
+                        <Ionicons name="book" size={10} color="#3598db" />
+                        <Text style={[styles.aiStatTxt, { color: '#3598db' }]}>{guide.keyTerms.length} Terms</Text>
+                      </View>
+                    )}
+                  </View>
+                  {renderDifficultyHeatmap(guide.id, true)}
                 </View>
               </Pressable>
             ))}
@@ -161,36 +277,41 @@ export default function StudyScreen() {
                 style={styles.premiumDeckListItem}
                 onPress={() => router.push({ pathname: '/study-session' as any, params: { deckId: deck.id } })}
               >
-                <View style={[styles.listEmojiBox, { backgroundColor: Colors.purpleDeckBg }]}>
-                  <Ionicons name="layers" size={14} color={Colors.primary} />
-                </View>
-                <View style={styles.listInfo}>
-                  <Text style={styles.listName} numberOfLines={1}>{deck.name}</Text>
-                  <Text style={styles.listCardsCount}>{deck.cards.length} flashcards</Text>
-                </View>
-                <View style={styles.listRight}>
-                  {getDueCards(deck.id).length > 0 && (
-                    <View style={styles.listDuePill}>
-                      <Text style={styles.listDueText}>{getDueCards(deck.id).length} due</Text>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={[styles.listEmojiBox, { backgroundColor: Colors.purpleDeckBg }]}>
+                      <Ionicons name="layers" size={14} color={Colors.primary} />
                     </View>
-                  )}
-                  <Pressable
-                    style={styles.deletePremiumBtn}
-                    hitSlop={8}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      Alert.alert(
-                        'Delete Deck',
-                        `Delete "${deck.name}" permanently?`,
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Delete', style: 'destructive', onPress: () => deleteDeck(deck.id) }
-                        ]
-                      );
-                    }}
-                  >
-                    <Ionicons name="trash-outline" size={15} color="#c04070" />
-                  </Pressable>
+                    <View style={styles.listInfo}>
+                      <Text style={styles.listName} numberOfLines={1}>{deck.name}</Text>
+                      <Text style={styles.listCardsCount}>{deck.cards.length} flashcards</Text>
+                    </View>
+                    <View style={styles.listRight}>
+                      {getDueCards(deck.id).length > 0 && (
+                        <View style={styles.listDuePill}>
+                          <Text style={styles.listDueText}>{getDueCards(deck.id).length} due</Text>
+                        </View>
+                      )}
+                      <Pressable
+                        style={styles.deletePremiumBtn}
+                        hitSlop={8}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          Alert.alert(
+                            'Delete Deck',
+                            `Delete "${deck.name}" permanently?`,
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              { text: 'Delete', style: 'destructive', onPress: () => deleteDeck(deck.id) }
+                            ]
+                          );
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={15} color="#c04070" />
+                      </Pressable>
+                    </View>
+                  </View>
+                  {renderDifficultyHeatmap(deck.id, false)}
                 </View>
               </Pressable>
             ))}
@@ -257,23 +378,7 @@ export default function StudyScreen() {
               <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} />
             </Pressable>
 
-            {/* Option 2: AI Import */}
-            <Pressable
-              style={styles.engineCard}
-              onPress={() => {
-                toggleCreateMenu();
-                router.push('/import-deck' as any);
-              }}
-            >
-              <View style={[styles.engineIconBox, { backgroundColor: '#e8f8ee' }]}>
-                <Ionicons name="sparkles-outline" size={20} color="#1a7a40" />
-              </View>
-              <View style={styles.engineInfo}>
-                <Text style={styles.engineName}>AI Document Import</Text>
-                <Text style={styles.engineDesc}>Convert PDF/PPT textbook materials instantly</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} />
-            </Pressable>
+
 
             {/* Option 3: AI Study Guide */}
             <Pressable
@@ -301,7 +406,10 @@ export default function StudyScreen() {
               style={styles.engineCard}
               onPress={() => {
                 toggleCreateMenu();
-                router.push('/practice-test' as any);
+                router.push({
+                  pathname: '/practice-test' as any,
+                  params: { mode: 'config' },
+                });
               }}
             >
               <View style={[styles.engineIconBox, { backgroundColor: '#fff7eb' }]}>
@@ -313,6 +421,7 @@ export default function StudyScreen() {
               </View>
               <Ionicons name="chevron-forward" size={16} color={Colors.mutedText} />
             </Pressable>
+
           </Animated.View>
         </>
       )}
@@ -631,5 +740,123 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     zIndex: 99,
+  },
+  filterWrapper: {
+    marginBottom: Spacing.xl,
+  },
+  filterScroll: {
+    gap: Spacing.md,
+    paddingRight: Spacing.xxl,
+  },
+  filterTab: {
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: 8,
+    borderRadius: BorderRadius.pill,
+    backgroundColor: Colors.cardSurface,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  filterTabActive: {
+    backgroundColor: Colors.accentBadgeBg,
+    borderColor: Colors.primary,
+  },
+  filterTabText: {
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 13,
+    color: Colors.mutedText,
+  },
+  filterTabTextActive: {
+    color: Colors.primary,
+    fontFamily: Fonts.bodyBold,
+  },
+  filterTabCount: {
+    fontSize: 11,
+    color: Colors.mutedText,
+  },
+  filterTabCountActive: {
+    color: Colors.primary,
+  },
+  heatmapContainer: {
+    marginTop: Spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: Colors.divider,
+    paddingTop: Spacing.md,
+  },
+  heatmapContainerMini: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.sm,
+  },
+  heatmapHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  heatmapLabel: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 9,
+    color: Colors.mutedText,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  heatmapLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  legendDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  heatmapGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  heatmapSquare: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+  },
+  heatmapSquareMini: {
+    width: 8,
+    height: 8,
+    borderRadius: 1.5,
+  },
+  pomodoroBanner: {
+    marginVertical: Spacing.md,
+    borderRadius: BorderRadius.card,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e8873a',
+    elevation: 4,
+    shadowColor: '#e8873a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  pomodoroGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.xl,
+  },
+  pomodoroBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  pomodoroBannerTitle: {
+    fontFamily: Fonts.display,
+    fontSize: 15,
+    color: Colors.headingText,
+  },
+  pomodoroBannerSub: {
+    fontFamily: Fonts.body,
+    fontSize: 11,
+    color: Colors.mutedText,
+    marginTop: 2,
   },
 });

@@ -5,14 +5,15 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
-import React, { useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,20 +28,32 @@ type TestStep = 'config' | 'loading' | 'quiz' | 'score';
 
 export default function PracticeTestScreen() {
   const insets = useSafeAreaInsets();
-  const { decks } = useNexaStore();
+  const { decks, updateDeck } = useNexaStore();
+  const params = useLocalSearchParams<{ deckId?: string; mode?: string }>();
 
   const [testStep, setTestStep] = useState<TestStep>('config');
   const [selectedDeckId, setSelectedDeckId] = useState<string>(decks[0]?.id || '');
   const [questionCount, setQuestionCount] = useState('10');
+  const [quizType, setQuizType] = useState<'mc' | 'fib' | 'tf'>('mc');
   
   const [questions, setQuestions] = useState<PracticeQuestion[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [fibInput, setFibInput] = useState('');
+  const [fibChecked, setFibChecked] = useState(false);
   const [score, setScore] = useState(0);
   const [error, setError] = useState('');
+  const [hasAutoStarted, setHasAutoStarted] = useState(false);
 
-  const handleStartTest = async () => {
-    const deck = decks.find(d => d.id === selectedDeckId);
+  const isGenerating = useRef(false);
+  const autoStartTriggered = useRef(false);
+
+  const handleStartTest = async (overrideDeckId?: string, overrideQuizType?: 'mc' | 'fib' | 'tf') => {
+    if (isGenerating.current) return;
+
+    const targetId = overrideDeckId || selectedDeckId;
+    const targetType = overrideQuizType || quizType;
+    const deck = decks.find(d => d.id === targetId);
     if (!deck) {
       setError('Please select a valid deck.');
       return;
@@ -54,6 +67,7 @@ export default function PracticeTestScreen() {
       return;
     }
 
+    isGenerating.current = true;
     setError('');
     setTestStep('loading');
 
@@ -62,20 +76,67 @@ export default function PracticeTestScreen() {
         .map((c, i) => `Card ${i + 1}:\nQuestion: ${c.front}\nAnswer: ${c.back}`)
         .join('\n\n');
       
-      const generated = await generatePracticeTest(cardsText, parseInt(questionCount) || 10);
+      const generated = await generatePracticeTest(cardsText, targetType, parseInt(questionCount) || 10);
       if (generated.length === 0) {
         throw new Error('Failed to parse test questions.');
       }
+
+      // Persist generated questions in the store to allow test resumption
+      updateDeck(targetId, { practiceQuestions: generated });
+
       setQuestions(generated);
       setCurrentIdx(0);
       setSelectedAnswer(null);
+      setFibInput('');
+      setFibChecked(false);
       setScore(0);
       setTestStep('quiz');
     } catch (e: any) {
       setError(e.message || 'Failed to generate practice test.');
       setTestStep('config');
+    } finally {
+      isGenerating.current = false;
     }
   };
+
+  useEffect(() => {
+    if (params.deckId && decks.length > 0 && !autoStartTriggered.current) {
+      autoStartTriggered.current = true;
+      const deckId = params.deckId;
+      setHasAutoStarted(true);
+      setSelectedDeckId(deckId);
+
+      const deck = decks.find(d => d.id === deckId);
+      if (deck && deck.practiceQuestions && deck.practiceQuestions.length > 0) {
+        // Load the existing test questions directly without calling Gemini AI again
+        setQuestions(deck.practiceQuestions);
+        setCurrentIdx(0);
+        setSelectedAnswer(null);
+        setFibInput('');
+        setFibChecked(false);
+        setScore(0);
+        setTestStep('quiz');
+        router.setParams({ deckId: undefined });
+      } else {
+        // Generate new test via AI
+        handleStartTest(deckId, 'mc');
+        router.setParams({ deckId: undefined });
+      }
+    }
+  }, [params.deckId, decks]);
+
+  useEffect(() => {
+    if (params.mode === 'config') {
+      setTestStep('config');
+      setQuestions([]);
+      setCurrentIdx(0);
+      setSelectedAnswer(null);
+      setFibInput('');
+      setFibChecked(false);
+      setScore(0);
+      router.setParams({ mode: undefined });
+    }
+  }, [params.mode]);
 
   const handleSelectAnswer = (ans: string) => {
     if (selectedAnswer !== null) return; // Prevent clicking multiple times
@@ -85,11 +146,25 @@ export default function PracticeTestScreen() {
     }
   };
 
+  const handleCheckFib = () => {
+    if (fibChecked) return;
+    setFibChecked(true);
+    const correct = questions[currentIdx].answer.toLowerCase().trim();
+    const input = fibInput.toLowerCase().trim();
+    if (input === correct) {
+      setScore(p => p + 1);
+    }
+  };
+
   const handleNext = () => {
     if (currentIdx + 1 < questions.length) {
       setCurrentIdx(p => p + 1);
       setSelectedAnswer(null);
+      setFibInput('');
+      setFibChecked(false);
     } else {
+      // Clear the persisted test questions since the exam is now finished
+      updateDeck(selectedDeckId, { practiceQuestions: undefined });
       setTestStep('score');
     }
   };
@@ -135,7 +210,10 @@ export default function PracticeTestScreen() {
           <Pressable
             style={styles.retryBtn}
             onPress={() => {
+              updateDeck(selectedDeckId, { practiceQuestions: undefined });
               setQuestions([]);
+              setFibInput('');
+              setFibChecked(false);
               setTestStep('config');
             }}
           >
@@ -191,9 +269,38 @@ export default function PracticeTestScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.introTitle}>Interactive Mock Exams</Text>
               <Text style={styles.introSub}>
-                Test your mastery with customized multiple-choice and true-false quizzes made by Nexa.
+                Test your mastery with customized multiple-choice, fill-in-the-blank, and true-false quizzes made by Nexa.
               </Text>
             </View>
+          </View>
+
+          {/* Quiz Type Selector */}
+          <Text style={styles.fieldLabel}>QUIZ TYPE</Text>
+          <View style={styles.typeRow}>
+            <Pressable
+              style={[styles.typeCard, quizType === 'mc' && styles.typeCardActive]}
+              onPress={() => setQuizType('mc')}
+            >
+              <Ionicons name="list" size={22} color={quizType === 'mc' ? Colors.primary : Colors.mutedText} />
+              <Text style={[styles.typeTitle, quizType === 'mc' && styles.typeTitleActive]}>Multiple Choice</Text>
+              <Text style={styles.typeSub}>4 options per question</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.typeCard, quizType === 'fib' && styles.typeCardActive]}
+              onPress={() => setQuizType('fib')}
+            >
+              <Ionicons name="create" size={22} color={quizType === 'fib' ? Colors.primary : Colors.mutedText} />
+              <Text style={[styles.typeTitle, quizType === 'fib' && styles.typeTitleActive]}>Fill in Blank</Text>
+              <Text style={styles.typeSub}>Type the answer</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.typeCard, quizType === 'tf' && styles.typeCardActive]}
+              onPress={() => setQuizType('tf')}
+            >
+              <Ionicons name="swap-horizontal" size={22} color={quizType === 'tf' ? Colors.primary : Colors.mutedText} />
+              <Text style={[styles.typeTitle, quizType === 'tf' && styles.typeTitleActive]}>True / False</Text>
+              <Text style={styles.typeSub}>Statement judgment</Text>
+            </Pressable>
           </View>
 
           <Text style={styles.fieldLabel}>SELECT SOURCE DECK</Text>
@@ -249,7 +356,7 @@ export default function PracticeTestScreen() {
 
           <Pressable
             style={[styles.startBtn, decks.length === 0 && styles.disabled]}
-            onPress={handleStartTest}
+            onPress={() => handleStartTest()}
             disabled={decks.length === 0}
           >
             <Ionicons name="sparkles" size={18} color={Colors.white} />
@@ -266,12 +373,34 @@ export default function PracticeTestScreen() {
   if (testStep === 'loading') {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Pressable
+            style={styles.backBtn}
+            onPress={() => {
+              if (hasAutoStarted) {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace('/' as any);
+                }
+              } else {
+                setTestStep('config');
+              }
+            }}
+          >
+            <Ionicons name="arrow-back" size={20} color={Colors.primary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Formulating Test</Text>
+          <View style={{ width: 36 }} />
+        </View>
+
         <View style={styles.loadingContainer}>
           <Image source={owlImage} style={styles.loadingOwl} contentFit="contain" />
           <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: Spacing.xl }} />
           <Text style={styles.loadingTitle}>Formulating Exam Questions...</Text>
           <Text style={styles.loadingSub}>
-            Scholar Nexa is designing high-quality questions to challenge and verify your mastery.
+            Scholar Nexa is designing high-quality {quizType === 'mc' ? 'multiple choice' : quizType === 'fib' ? 'fill-in-the-blank' : 'true/false'} questions to challenge and verify your mastery.
           </Text>
         </View>
       </View>
@@ -280,19 +409,36 @@ export default function PracticeTestScreen() {
 
   // ─── Quiz Step ─────────────────────────────────────
   const currentQuestion = questions[currentIdx];
-  const isAnswered = selectedAnswer !== null;
+  const isAnswered = currentQuestion?.type === 'fib' ? fibChecked : selectedAnswer !== null;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => setTestStep('config')}>
+        <Pressable
+          style={styles.backBtn}
+          onPress={() => {
+            if (hasAutoStarted) {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/' as any);
+              }
+            } else {
+              setTestStep('config');
+            }
+          }}
+        >
           <Ionicons name="arrow-back" size={20} color={Colors.primary} />
         </Pressable>
         <Text style={styles.headerTitle}>
           Question {currentIdx + 1} of {questions.length}
         </Text>
-        <View style={{ width: 36 }} />
+        <View style={styles.quizTypeBadge}>
+          <Text style={styles.quizTypeBadgeText}>
+            {currentQuestion?.type === 'mc' ? 'MCQ' : currentQuestion?.type === 'fib' ? 'FIB' : 'T/F'}
+          </Text>
+        </View>
       </View>
 
       {/* Progress Bar */}
@@ -307,52 +453,102 @@ export default function PracticeTestScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.quizCard}>
-          <Text style={styles.questionText}>{currentQuestion.question}</Text>
+          <Text style={styles.questionText}>{currentQuestion?.question}</Text>
         </View>
 
         {/* Options */}
-        <View style={styles.optionsList}>
-          {currentQuestion.options?.map((opt, i) => {
-            const isCorrect = opt === currentQuestion.answer;
-            const isSelected = opt === selectedAnswer;
+        {(currentQuestion?.type === 'mc' || currentQuestion?.type === 'tf') && (
+          <View style={styles.optionsList}>
+            {currentQuestion.options?.map((opt, i) => {
+              const isCorrect = opt === currentQuestion.answer;
+              const isSelected = opt === selectedAnswer;
 
-            let optStyle: any = styles.optionItem;
-            let iconName: keyof typeof Ionicons.glyphMap = 'radio-button-off';
-            let iconColor: string = Colors.mutedText;
+              let optStyle: any = styles.optionItem;
+              let textStyle: any = styles.optionText;
+              let iconName: keyof typeof Ionicons.glyphMap = 'radio-button-off';
+              let iconColor: string = Colors.mutedText;
 
-            if (isAnswered) {
-              if (isSelected) {
-                if (isCorrect) {
+              if (isAnswered) {
+                if (isSelected) {
+                  if (isCorrect) {
+                    optStyle = [styles.optionItem, styles.optionCorrect];
+                    textStyle = [styles.optionText, { color: Colors.easyText }];
+                    iconName = 'checkmark-circle';
+                    iconColor = Colors.easyText;
+                  } else {
+                    optStyle = [styles.optionItem, styles.optionIncorrect];
+                    textStyle = [styles.optionText, { color: Colors.againText }];
+                    iconName = 'close-circle';
+                    iconColor = Colors.againText;
+                  }
+                } else if (isCorrect) {
                   optStyle = [styles.optionItem, styles.optionCorrect];
+                  textStyle = [styles.optionText, { color: Colors.easyText }];
                   iconName = 'checkmark-circle';
                   iconColor = Colors.easyText;
                 } else {
-                  optStyle = [styles.optionItem, styles.optionIncorrect];
-                  iconName = 'close-circle';
-                  iconColor = Colors.againText;
+                  optStyle = [styles.optionItem, styles.optionDisabled];
                 }
-              } else if (isCorrect) {
-                optStyle = [styles.optionItem, styles.optionCorrect];
-                iconName = 'checkmark-circle';
-                iconColor = Colors.easyText;
-              } else {
-                optStyle = [styles.optionItem, styles.optionDisabled];
               }
-            }
 
-            return (
+              return (
+                <Pressable
+                  key={i}
+                  style={optStyle}
+                  onPress={() => handleSelectAnswer(opt)}
+                  disabled={isAnswered}
+                >
+                  <Ionicons name={iconName} size={20} color={iconColor} />
+                  <Text style={textStyle}>{opt}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Fill in the Blank */}
+        {currentQuestion?.type === 'fib' && (
+          <View style={styles.fibContainer}>
+            <View style={styles.fibInputWrapper}>
+              <TextInput
+                style={styles.fibInput}
+                placeholder="Type your answer..."
+                placeholderTextColor={Colors.mutedText}
+                value={fibInput}
+                onChangeText={setFibInput}
+                editable={!fibChecked}
+                autoCapitalize="none"
+              />
+            </View>
+            {!fibChecked && (
               <Pressable
-                key={i}
-                style={optStyle}
-                onPress={() => handleSelectAnswer(opt)}
-                disabled={isAnswered}
+                style={[styles.fibCheckBtn, !fibInput.trim() && styles.disabled]}
+                onPress={handleCheckFib}
+                disabled={!fibInput.trim()}
               >
-                <Ionicons name={iconName} size={20} color={iconColor} />
-                <Text style={styles.optionText}>{opt}</Text>
+                <Text style={styles.fibCheckBtnText}>Check Answer</Text>
               </Pressable>
-            );
-          })}
-        </View>
+            )}
+            {fibChecked && (
+              <View style={[
+                styles.fibResult,
+                fibInput.toLowerCase().trim() === currentQuestion.answer.toLowerCase().trim()
+                  ? styles.fibResultCorrect : styles.fibResultWrong
+              ]}>
+                <Ionicons
+                  name={fibInput.toLowerCase().trim() === currentQuestion.answer.toLowerCase().trim() ? 'checkmark-circle' : 'close-circle'}
+                  size={18}
+                  color={fibInput.toLowerCase().trim() === currentQuestion.answer.toLowerCase().trim() ? Colors.easyText : Colors.againText}
+                />
+                <Text style={styles.fibResultText}>
+                  {fibInput.toLowerCase().trim() === currentQuestion.answer.toLowerCase().trim()
+                    ? 'Correct!'
+                    : `Wrong — the answer is: ${currentQuestion.answer}`}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
 
         {isAnswered && (
           <Pressable style={styles.nextBtn} onPress={handleNext}>
@@ -587,4 +783,43 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
   },
   finishBtnText: { fontFamily: Fonts.display, fontSize: 16, color: Colors.mutedText },
+
+  // Quiz Type Selector
+  typeRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.xl },
+  typeCard: {
+    flex: 1, backgroundColor: Colors.cardSurface, borderWidth: 1, borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.xl, paddingVertical: Spacing.xl, alignItems: 'center', gap: 4,
+  },
+  typeCardActive: { borderColor: Colors.primary, borderWidth: 2, backgroundColor: Colors.accentBadgeBg },
+  typeTitle: { fontFamily: Fonts.bodyBold, fontSize: 11, color: Colors.headingText, textAlign: 'center' },
+  typeTitleActive: { color: Colors.primary },
+  typeSub: { fontFamily: Fonts.body, fontSize: 8, color: Colors.mutedText, textAlign: 'center' },
+
+  // Quiz Type Badge
+  quizTypeBadge: {
+    backgroundColor: Colors.accentBadgeBg, borderRadius: BorderRadius.pill,
+    paddingHorizontal: Spacing.lg, paddingVertical: 4,
+  },
+  quizTypeBadgeText: { fontFamily: Fonts.bodyBold, fontSize: 10, color: Colors.primary, letterSpacing: 1 },
+
+  // Fill in Blank
+  fibContainer: { marginBottom: Spacing.xl },
+  fibInputWrapper: {
+    backgroundColor: Colors.cardSurface, borderWidth: 1, borderColor: Colors.cardBorder,
+    borderRadius: BorderRadius.xl, paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg,
+    marginBottom: Spacing.lg,
+  },
+  fibInput: { fontFamily: Fonts.body, fontSize: 16, color: Colors.headingText, padding: 0 },
+  fibCheckBtn: {
+    backgroundColor: Colors.primary, borderRadius: BorderRadius.xxl, height: 48,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  fibCheckBtnText: { fontFamily: Fonts.display, fontSize: 14, color: Colors.white },
+  fibResult: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    borderRadius: BorderRadius.xl, padding: Spacing.lg, marginTop: Spacing.md,
+  },
+  fibResultCorrect: { backgroundColor: Colors.easyBg, borderColor: Colors.easyText, borderWidth: 1 },
+  fibResultWrong: { backgroundColor: Colors.againBg, borderColor: Colors.againText, borderWidth: 1 },
+  fibResultText: { fontFamily: Fonts.bodySemiBold, fontSize: 13, color: Colors.headingText, flex: 1 },
 });

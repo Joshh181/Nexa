@@ -71,15 +71,48 @@ function FlashCard({ card, isFlipped, onFlip }: { card: Card; isFlipped: boolean
   const frontOp = flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0, 0] });
   const backOp = flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0, 1] });
 
+  // Calculate difficulty based on correct/incorrect ratios
+  const correct = card.correctCount || 0;
+  const incorrect = card.incorrectCount || 0;
+  const total = correct + incorrect;
+  let diffLabel = 'New';
+  let diffColor: string = Colors.mutedText;
+  let diffBg: string = Colors.accentBadgeBg;
+
+  if (total > 0) {
+    const ratio = correct / total;
+    if (ratio >= 0.7) {
+      diffLabel = 'Easy';
+      diffColor = Colors.easyText;
+      diffBg = Colors.easyBg;
+    } else if (ratio >= 0.4) {
+      diffLabel = 'Moderate';
+      diffColor = Colors.hardText;
+      diffBg = Colors.hardBg;
+    } else {
+      diffLabel = 'Hard';
+      diffColor = Colors.againText;
+      diffBg = Colors.againBg;
+    }
+  }
+
   return (
     <Pressable onPress={onFlip} style={styles.fcContainer}>
-      <Animated.View style={[styles.fc, { transform: [{ perspective: 1000 }, { rotateY: frontRotate }], opacity: frontOp }]}>
+      <Animated.View style={[styles.fc, isFlipped && styles.fcAbsolute, { transform: [{ perspective: 1000 }, { rotateY: frontRotate }], opacity: frontOp }]}>
         <View style={styles.fcBadge}><Text style={styles.fcBadgeTxt}>Question</Text></View>
+        <View style={[styles.fcDiffBadge, { backgroundColor: diffBg }]}>
+          <View style={[styles.fcDiffDot, { backgroundColor: diffColor }]} />
+          <Text style={[styles.fcDiffBadgeTxt, { color: diffColor }]}>{diffLabel}</Text>
+        </View>
         <Text style={styles.fcQ}>{card.front}</Text>
         {!isFlipped && <Text style={styles.tapHint}>tap to reveal →</Text>}
       </Animated.View>
-      <Animated.View style={[styles.fc, styles.fcBack, { transform: [{ perspective: 1000 }, { rotateY: backRotate }], opacity: backOp }]}>
+      <Animated.View style={[styles.fc, !isFlipped && styles.fcAbsolute, { transform: [{ perspective: 1000 }, { rotateY: backRotate }], opacity: backOp }]}>
         <View style={[styles.fcBadge, { backgroundColor: Colors.easyBg }]}><Text style={styles.fcBadgeTxt}>Answer</Text></View>
+        <View style={[styles.fcDiffBadge, { backgroundColor: diffBg }]}>
+          <View style={[styles.fcDiffDot, { backgroundColor: diffColor }]} />
+          <Text style={[styles.fcDiffBadgeTxt, { color: diffColor }]}>{diffLabel}</Text>
+        </View>
         <Text style={styles.fcQ}>{card.front}</Text>
         <View style={styles.fcDiv} />
         <Text style={styles.fcA}>{card.back}</Text>
@@ -258,10 +291,13 @@ const styles = StyleSheet.create({
   progTrack: { height: 6, backgroundColor: Colors.cardBorder, borderRadius: 3, marginBottom: Spacing.xxxl, overflow: 'hidden' },
   progFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 3 },
   fcContainer: { minHeight: 280, marginBottom: Spacing.xxl },
-  fc: { backgroundColor: Colors.cardSurface, borderWidth: 1.5, borderColor: '#d4c8f8', borderRadius: BorderRadius.round, padding: Spacing.xxxl, minHeight: 280, justifyContent: 'center', backfaceVisibility: 'hidden' },
-  fcBack: { position: 'absolute', top: 0, left: 0, right: 0 },
+  fc: { backgroundColor: Colors.cardSurface, borderWidth: 1.5, borderColor: '#d4c8f8', borderRadius: BorderRadius.round, padding: Spacing.xxxl, minHeight: 280, justifyContent: 'center' },
+  fcAbsolute: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   fcBadge: { position: 'absolute', top: Spacing.xl, left: Spacing.xl, backgroundColor: Colors.accentBadgeBg, paddingHorizontal: Spacing.md, paddingVertical: 3, borderRadius: BorderRadius.sm },
   fcBadgeTxt: { fontFamily: Fonts.bodyBold, fontSize: 10, color: Colors.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  fcDiffBadge: { position: 'absolute', top: Spacing.xl, right: Spacing.xl, flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.md, paddingVertical: 4, borderRadius: BorderRadius.sm, gap: 4 },
+  fcDiffDot: { width: 6, height: 6, borderRadius: 3 },
+  fcDiffBadgeTxt: { fontFamily: Fonts.bodyBold, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 },
   fcQ: { fontFamily: Fonts.display, fontSize: 22, color: Colors.headingText, lineHeight: 32, textAlign: 'center', marginTop: Spacing.huge },
   fcDiv: { height: 1, backgroundColor: Colors.divider, marginVertical: Spacing.xl },
   fcA: { fontFamily: Fonts.bodySemiBold, fontSize: 17, color: Colors.answerText, lineHeight: 26, textAlign: 'center' },

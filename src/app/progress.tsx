@@ -80,11 +80,13 @@ function MasteryBar({ name, mastery, icon, colorTag }: MasteryBarProps) {
 
 export default function ProgressScreen() {
   const insets = useSafeAreaInsets();
-  const { getWeeklyActivity, getDeckMastery, getStreakCalendar, streak, studySessions, totalMastered, decks } = useNexaStore();
+  const { getWeeklyActivity, getDeckMastery, getStreakCalendar, getWeeklyStudyMinutes, streak, studySessions, totalMastered, totalStudyMinutes, decks } = useNexaStore();
   
   const weekly = getWeeklyActivity();
   const deckMasteries = getDeckMastery();
   const calendar = getStreakCalendar();
+  const weeklyMinutes = getWeeklyStudyMinutes();
+  const maxWeeklyMinutes = Math.max(...weeklyMinutes, 1);
 
   // Calculate total cards studied across all sessions
   const totalCardsStudied = studySessions.reduce((sum, s) => sum + s.cardsStudied, 0);
@@ -234,6 +236,40 @@ export default function ProgressScreen() {
                 <View style={[styles.legendIndicator, { backgroundColor: '#7c5cbf' }]} />
                 <Text style={styles.legendLabel}>Active Study</Text>
               </View>
+            </View>
+          </View>
+
+          {/* Study Time (Pomodoro) */}
+          <Text style={styles.sectionLabel}>STUDY TIME</Text>
+          <View style={styles.chartCard}>
+            <View style={styles.chartHeader}>
+              <Ionicons name="timer" size={16} color={Colors.primary} />
+              <Text style={styles.chartTitle}>Focus Minutes (Past 7 Days)</Text>
+            </View>
+            <View style={styles.chartContainer}>
+              {weeklyMinutes.map((mins, i) => {
+                const barHeight = (mins / maxWeeklyMinutes) * 110;
+                const isToday = i === currentDayIndex;
+                return (
+                  <View key={`pm-${i}`} style={styles.chartCol}>
+                    <View style={styles.barTrack}>
+                      <View style={[
+                        styles.barFill,
+                        {
+                          height: Math.max(barHeight, 4),
+                          backgroundColor: isToday ? '#5ab87a' : 'rgba(90, 184, 122, 0.4)',
+                        }
+                      ]} />
+                    </View>
+                    <Text style={[styles.barDay, isToday && styles.barDayActive]}>{DAY_LABELS[i]}</Text>
+                    <Text style={styles.barCount}>{mins}m</Text>
+                  </View>
+                );
+              })}
+            </View>
+            <View style={styles.totalStudyRow}>
+              <Text style={styles.totalStudyLabel}>Total study time:</Text>
+              <Text style={styles.totalStudyValue}>{totalStudyMinutes} min</Text>
             </View>
           </View>
 
@@ -535,5 +571,25 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bodyBold,
     fontSize: 9,
     color: Colors.mutedText,
+  },
+
+  totalStudyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: Colors.divider,
+    paddingTop: Spacing.lg,
+    marginTop: Spacing.xl,
+  },
+  totalStudyLabel: {
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 11,
+    color: Colors.mutedText,
+  },
+  totalStudyValue: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
+    color: Colors.primary,
   },
 });

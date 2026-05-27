@@ -154,44 +154,44 @@ ${text}`;
 
 export interface PracticeQuestion {
   question: string;
-  type: 'mc' | 'tf';
+  type: 'mc' | 'tf' | 'fib';
   options?: string[];
   answer: string;
 }
 
 /**
- * Sends deck cards to Gemini and generates a set of practice questions (multiple-choice or true/false).
+ * Sends deck cards to Gemini and generates a set of practice questions (multiple-choice, true/false, or fill-in-the-blank).
  */
 export async function generatePracticeTest(
   cardsText: string,
+  quizType: 'mc' | 'fib' | 'tf',
   questionCount: number = 10,
 ): Promise<PracticeQuestion[]> {
   if (!isAIConfigured()) {
     throw new Error('AI is not configured. Set your Gemini API key in src/constants/config.ts');
   }
 
-  const prompt = `You are a rigorous academic examiner. Based on the following study flashcards, generate exactly ${questionCount} high-quality practice test questions.
+  const typeLabel =
+    quizType === 'mc' ? 'Multiple Choice' : quizType === 'fib' ? 'Fill in the Blank' : 'True/False';
 
-Rules:
-- Vary the questions between Multiple Choice ('mc') and True/False ('tf') types
-- For Multiple Choice ('mc'), provide exactly 4 options: A, B, C, D
-- For True/False ('tf'), the options must be exactly ["True", "False"]
-- The answer must be the exact string matching the correct option (e.g. for mc, the full correct option text; for tf, "True" or "False")
-- Cover the main terms, principles, and analytical conclusions in the flashcards
+  const typeInstructions =
+    quizType === 'mc'
+      ? 'For each question, provide exactly 4 options labeled A, B, C, D. The answer must be the exact full text of the correct option.'
+      : quizType === 'fib'
+      ? 'For each question, create a sentence with a key term blanked out using "___". The answer must be the exact word or short phrase that fills the blank.'
+      : 'For each question, create a statement that is either true or false. The options must be exactly ["True", "False"]. The answer must be either "True" or "False".';
+
+  const prompt = `You are a rigorous academic examiner. Based on the following study flashcards, generate exactly ${questionCount} high-quality ${typeLabel} questions.
+
+${typeInstructions}
 
 Return ONLY a valid JSON array with no extra text, no markdown fences:
 [
   {
-    "question": "The question content here?",
-    "type": "mc",
-    "options": ["Option A", "Option B", "Option C", "Option D"],
-    "answer": "Option B"
-  },
-  {
-    "question": "Statements of this sort are universally true?",
-    "type": "tf",
-    "options": ["True", "False"],
-    "answer": "False"
+    "question": "The question text",
+    "type": "${quizType}",
+    "options": ${quizType === 'tf' ? '["True", "False"]' : quizType === 'mc' ? '["Option A", "Option B", "Option C", "Option D"]' : '[]'},
+    "answer": "The correct answer"
   }
 ]
 
@@ -241,6 +241,7 @@ export interface StudyGuidePayload {
 export async function generateStudyGuide(
   sourceMaterial: string,
   title: string,
+  cardCount: number = 10,
 ): Promise<StudyGuidePayload> {
   if (!isAIConfigured()) {
     throw new Error('AI is not configured. Set your Gemini API key in src/constants/config.ts');
@@ -270,7 +271,7 @@ You MUST return exactly a valid JSON object matching the following structure (do
   ]
 }
 
-Ensure you generate exactly 10-15 high-quality flashcards under 'flashcards', 5-8 terms under 'keyTerms', 2-3 conceptual sections under 'keyConcepts', at least 1 summary table under 'keyTables', and 3-5 challenging essay questions under 'essayQuestions'.`;
+Ensure you generate exactly ${cardCount} high-quality flashcards under 'flashcards', 5-8 terms under 'keyTerms', 2-3 conceptual sections under 'keyConcepts', at least 1 summary table under 'keyTables', and 3-5 challenging essay questions under 'essayQuestions'.`;
 
   const response = await fetch(`${GEMINI_API_URL}?key=${getActiveApiKey()}`, {
     method: 'POST',
@@ -379,6 +380,7 @@ export async function generateStudyGuideFromImage(
   base64Image: string,
   mimeType: string = 'image/jpeg',
   title: string = 'Visual Guide',
+  cardCount: number = 10,
 ): Promise<StudyGuidePayload> {
   if (!isAIConfigured()) {
     throw new Error('AI is not configured. Set your Gemini API key in src/constants/config.ts');
@@ -406,7 +408,7 @@ You MUST return exactly a valid JSON object matching the following structure (do
   ]
 }
 
-Ensure you generate exactly 10-15 high-quality flashcards under 'flashcards', 5-8 terms under 'keyTerms', 2-3 conceptual sections under 'keyConcepts', at least 1 summary table under 'keyTables', and 3-5 challenging essay questions under 'essayQuestions'.`;
+Ensure you generate exactly ${cardCount} high-quality flashcards under 'flashcards', 5-8 terms under 'keyTerms', 2-3 conceptual sections under 'keyConcepts', at least 1 summary table under 'keyTables', and 3-5 challenging essay questions under 'essayQuestions'.`;
 
   const response = await fetch(`${GEMINI_API_URL}?key=${getActiveApiKey()}`, {
     method: 'POST',
@@ -508,3 +510,84 @@ function getFallbackPayload(title: string): StudyGuidePayload {
   };
 }
 
+/**
+ * AI Chat Tutor — Send a question to Nexa (Gemini) with study context and chat history.
+ * Returns a conversational, helpful response.
+ */
+export interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+}
+
+export async function chatWithNexa(
+  userMessage: string,
+  studyContext: string,
+  chatHistory: ChatMessage[] = [],
+): Promise<string> {
+  if (!isAIConfigured()) {
+    throw new Error('AI is not configured. Set your Gemini API key.');
+  }
+
+  const systemPrompt = `You are Nexa, a wise and friendly steampunk scholar owl who serves as an AI study tutor. You help students understand their study materials, answer questions, explain concepts, and provide study tips.
+
+Your personality:
+- Warm, encouraging, and knowledgeable
+- Occasionally use owl-themed expressions like "hoot!" or "wise choice!"
+- Keep answers clear, concise, and educational
+- Use bullet points and structured formatting when explaining complex topics
+- If the student seems confused, break things down into simpler parts
+- Reference the student's study materials when relevant
+
+The student's current study materials include:
+${studyContext || 'No specific study materials loaded yet. Help the student with general study questions.'}`;
+
+  const contents: any[] = [];
+
+  contents.push({
+    role: 'user',
+    parts: [{ text: systemPrompt }],
+  });
+  contents.push({
+    role: 'model',
+    parts: [{ text: "Hoot! I'm Nexa, your scholarly owl tutor. I'm ready to help you master your study materials. Ask me anything!" }],
+  });
+
+  for (const msg of chatHistory) {
+    contents.push({
+      role: msg.role,
+      parts: [{ text: msg.text }],
+    });
+  }
+
+  contents.push({
+    role: 'user',
+    parts: [{ text: userMessage }],
+  });
+
+  const response = await fetch(`${GEMINI_API_URL}?key=${getActiveApiKey()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents,
+      generationConfig: {
+        temperature: 0.8,
+        maxOutputTokens: 2048,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    const msg = errorData?.error?.message || `API error ${response.status}`;
+    throw new Error(msg);
+  }
+
+  const data = await response.json();
+  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+
+  if (!rawText) {
+    throw new Error('Nexa could not generate a response. Please try again.');
+  }
+
+  return rawText.trim();
+}
